@@ -91,43 +91,79 @@ perplexity_key = get_secret_or_env("ai.perplexity_api_key", "PERPLEXITY_API_KEY"
 hf_token = get_secret_or_env("ai.huggingface_token", "HUGGINGFACE_TOKEN")
 openai_key = get_secret_or_env("ai.openai_api_key", "OPENAI_API_KEY")
 
-# Sidebar for configuration status
+# Sidebar for configuration
 with st.sidebar:
-    st.header("🔧 Configuration Status")
+    st.header("🔧 Configuration")
     
-    # Twitter API Status
+    # Twitter API Configuration
     st.subheader("Twitter API")
     if all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret]):
         st.success("✅ Twitter API configured")
     else:
         st.error("❌ Twitter API not configured")
-        st.info("💡 Add your Twitter API credentials to environment variables or Streamlit secrets")
+        st.info("💡 Add your Twitter API credentials to Streamlit secrets")
+        with st.expander("📝 How to add Twitter API keys"):
+            st.markdown("""
+            **For Streamlit Cloud:**
+            1. Go to your app's settings
+            2. Add these secrets:
+            ```
+            [twitter]
+            api_key = "your_key"
+            api_secret = "your_secret"
+            access_token = "your_token"
+            access_token_secret = "your_token_secret"
+            ```
+            """)
     
     # AI Provider Selection
     st.subheader("AI Settings")
     ai_provider = st.selectbox("AI Provider", ["Perplexity AI (Recommended)", "Hugging Face (Free)", "OpenAI (Paid)"])
     
-    # Show AI provider status
+    # AI Provider Configuration with input fields
     if ai_provider == "Perplexity AI (Recommended)":
-        if perplexity_key:
-            st.success("✅ Perplexity AI configured")
+        st.info("💡 High-quality image descriptions with fast response times")
+        if not perplexity_key:
+            st.warning("⚠️ Perplexity API key not configured")
+            user_perplexity_key = st.text_input(
+                "Enter Perplexity API Key", 
+                type="password",
+                help="Get your API key from https://www.perplexity.ai/settings/api"
+            )
+            if user_perplexity_key:
+                perplexity_key = user_perplexity_key
+                st.success("✅ Perplexity API key entered")
         else:
-            st.error("❌ Perplexity API key not found")
-            st.info("💡 Add PERPLEXITY_API_KEY to environment variables")
-        st.info("💡 Perplexity AI provides high-quality image descriptions with fast response times")
+            st.success("✅ Perplexity API configured")
+            
     elif ai_provider == "Hugging Face (Free)":
+        st.info("💡 Free option using Salesforce BLIP model")
         if hf_token:
             st.success("✅ Hugging Face configured")
         else:
-            st.warning("⚠️ Hugging Face token not found (optional)")
-        st.info("💡 Free option using Salesforce BLIP model")
+            st.info("ℹ️ No API key needed (using free tier)")
+            user_hf_token = st.text_input(
+                "Hugging Face Token (Optional)", 
+                type="password",
+                help="Optional: Add token for higher rate limits"
+            )
+            if user_hf_token:
+                hf_token = user_hf_token
+                
     elif ai_provider == "OpenAI (Paid)":
-        if openai_key:
-            st.success("✅ OpenAI configured")
-        else:
-            st.error("❌ OpenAI API key not found")
-            st.info("💡 Add OPENAI_API_KEY to environment variables")
         st.info("💡 Uses GPT-4 Vision for sophisticated descriptions")
+        if not openai_key:
+            st.warning("⚠️ OpenAI API key not configured")
+            user_openai_key = st.text_input(
+                "Enter OpenAI API Key", 
+                type="password",
+                help="Get your API key from https://platform.openai.com/api-keys"
+            )
+            if user_openai_key:
+                openai_key = user_openai_key
+                st.success("✅ OpenAI API key entered")
+        else:
+            st.success("✅ OpenAI API configured")
     
 
 # Initialize session state
@@ -376,7 +412,8 @@ with col1:
                     if perplexity_key:
                         description = generate_image_description_with_perplexity(image, perplexity_key)
                     else:
-                        st.error("❌ Perplexity API key not configured. Please add PERPLEXITY_API_KEY to your environment variables.")
+                        st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
+                        st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
                         description = ""
                 elif ai_provider == "Hugging Face (Free)":
                     description = generate_image_description_with_huggingface(image, hf_token)
@@ -384,7 +421,8 @@ with col1:
                     if openai_key:
                         description = generate_image_description_with_openai(image, openai_key)
                     else:
-                        st.error("❌ OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
+                        st.error("❌ Please enter your OpenAI API key in the sidebar to use this feature.")
+                        st.info("💡 You can get an API key from https://platform.openai.com/api-keys")
                         description = ""
                 
                 st.session_state.tweet_content = description
