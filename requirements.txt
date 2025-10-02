@@ -4,3 +4,6 @@ Pillow
 tweepy
 python-dotenv
 openai
+snowflake-connector-python
+pandas
+plotly

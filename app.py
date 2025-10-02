@@ -7,6 +7,8 @@ import tweepy
 import os
 from dotenv import load_dotenv
 import time
+from snowflake_manager import snowflake_manager
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -65,13 +67,28 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Navigation
+page = st.sidebar.selectbox(
+    "📱 Navigation",
+    ["🐦 Tweet Generator", "📊 Analytics Dashboard"],
+    index=0
+)
+
 # Header
-st.markdown("""
-<div class="main-header">
-    <h1>🐦 AI Tweet Generator</h1>
-    <p>Upload an image and let AI write a tweet about it!</p>
-</div>
-""", unsafe_allow_html=True)
+if page == "🐦 Tweet Generator":
+    st.markdown("""
+    <div class="main-header">
+        <h1>🐦 AI Tweet Generator</h1>
+        <p>Upload an image and let AI write a tweet about it!</p>
+    </div>
+    """, unsafe_allow_html=True)
+elif page == "📊 Analytics Dashboard":
+    st.markdown("""
+    <div class="main-header">
+        <h1>📊 Analytics Dashboard</h1>
+        <p>Insights and analytics from your TweeterBot usage</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # Secure credential management
 def get_secret_or_env(secret_key, env_key, default=""):
@@ -165,12 +182,54 @@ with st.sidebar:
         else:
             st.success("✅ OpenAI API configured")
     
+    # Snowflake Database Status
+    st.subheader("🗄️ Database")
+    if st.session_state.snowflake_connected:
+        st.success("✅ Snowflake connected")
+        if st.session_state.snowflake_session_id:
+            # Get session stats
+            session_stats = snowflake_manager.get_user_session_stats(st.session_state.snowflake_session_id)
+            if session_stats:
+                st.info(f"📊 Session Stats: {session_stats.get('images_uploaded', 0)} images, {session_stats.get('ai_generations', 0)} AI generations, {session_stats.get('tweets_posted', 0)} tweets")
+    else:
+        st.warning("⚠️ Snowflake not connected")
+        st.info("💡 Add Snowflake credentials to enable data storage and analytics")
+        with st.expander("📝 How to configure Snowflake"):
+            st.markdown("""
+            **For Streamlit Cloud:**
+            1. Go to your app's settings
+            2. Add these secrets:
+            ```
+            [snowflake]
+            account = "your_account"
+            user = "your_username"
+            password = "your_password"
+            warehouse = "your_warehouse"
+            database = "TWEETERBOT_DB"
+            schema = "TWEET_DATA"
+            role = "your_role"
+            ```
+            """)
+    
 
 # Initialize session state
 if 'tweet_content' not in st.session_state:
     st.session_state.tweet_content = ""
 if 'uploaded_image' not in st.session_state:
     st.session_state.uploaded_image = None
+if 'snowflake_session_id' not in st.session_state:
+    st.session_state.snowflake_session_id = ""
+if 'snowflake_connected' not in st.session_state:
+    st.session_state.snowflake_connected = False
+
+# Initialize Snowflake connection
+if not st.session_state.snowflake_connected:
+    if snowflake_manager.connect():
+        st.session_state.snowflake_connected = True
+        # Create user session
+        user_ip = st.context.headers.get("x-forwarded-for", "unknown")
+        user_agent = st.context.headers.get("user-agent", "unknown")
+        st.session_state.snowflake_session_id = snowflake_manager.create_user_session(user_ip, user_agent)
 
 def encode_image_to_base64(image):
     """Convert PIL Image to base64 string"""
@@ -384,8 +443,10 @@ def post_tweet(content, image_path, api_key, api_secret, access_token, access_to
     except Exception as e:
         return False, str(e)
 
-# Main content area
-col1, col2 = st.columns([1, 1])
+# Show content based on selected page
+if page == "🐦 Tweet Generator":
+    # Main content area
+    col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("📸 Upload Image")
@@ -404,9 +465,50 @@ with col1:
         # Store image in session state
         st.session_state.uploaded_image = image
         
+        # Store image in Snowflake if connected
+        if st.session_state.snowflake_connected and st.session_state.snowflake_session_id:
+            try:
+                # Convert image to bytes
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format='JPEG')
+                img_bytes = img_byte_arr.getvalue()
+                
+                # Store in Snowflake
+                image_id = snowflake_manager.store_uploaded_image(
+                    st.session_state.snowflake_session_id,
+                    img_bytes,
+                    uploaded_file.name,
+                    image.format or 'JPEG',
+                    image.width,
+                    image.height
+                )
+                
+                if image_id:
+                    st.session_state.current_image_id = image_id
+                    # Log analytics event
+                    snowflake_manager.log_analytics_event(
+                        st.session_state.snowflake_session_id,
+                        'image_upload',
+                        success=True
+                    )
+                    st.success("📊 Image stored in database")
+                    
+            except Exception as e:
+                st.warning(f"Could not store image in database: {str(e)}")
+                snowflake_manager.log_analytics_event(
+                    st.session_state.snowflake_session_id,
+                    'image_upload',
+                    success=False,
+                    error_type=str(e)
+                )
+        
         # Generate description button
         if st.button("🤖 Generate Tweet", type="primary"):
             with st.spinner("Generating tweet content..."):
+                start_time = time.time()
+                description = ""
+                ai_provider_key = ai_provider.split(" ")[0].lower()  # Extract provider name
+                
                 # Generate description based on selected provider
                 if ai_provider == "Perplexity AI (Recommended)":
                     if perplexity_key:
@@ -424,6 +526,49 @@ with col1:
                         st.error("❌ Please enter your OpenAI API key in the sidebar to use this feature.")
                         st.info("💡 You can get an API key from https://platform.openai.com/api-keys")
                         description = ""
+                
+                processing_time = int((time.time() - start_time) * 1000)  # Convert to milliseconds
+                
+                # Store AI-generated content in Snowflake
+                if description and st.session_state.snowflake_connected and hasattr(st.session_state, 'current_image_id'):
+                    try:
+                        # Estimate API cost (rough estimates)
+                        cost_estimates = {
+                            'perplexity': 0.002,
+                            'openai': 0.01,
+                            'hugging': 0.0
+                        }
+                        estimated_cost = cost_estimates.get(ai_provider_key, 0.0)
+                        
+                        content_id = snowflake_manager.store_ai_generated_content(
+                            st.session_state.current_image_id,
+                            ai_provider_key,
+                            description,
+                            processing_time,
+                            estimated_cost
+                        )
+                        
+                        if content_id:
+                            st.session_state.current_content_id = content_id
+                            # Log analytics event
+                            snowflake_manager.log_analytics_event(
+                                st.session_state.snowflake_session_id,
+                                'ai_generation',
+                                ai_provider_key,
+                                success=True,
+                                processing_time_ms=processing_time
+                            )
+                            st.success(f"📊 AI content stored (took {processing_time}ms)")
+                    except Exception as e:
+                        st.warning(f"Could not store AI content: {str(e)}")
+                        snowflake_manager.log_analytics_event(
+                            st.session_state.snowflake_session_id,
+                            'ai_generation',
+                            ai_provider_key,
+                            success=False,
+                            error_type=str(e),
+                            processing_time_ms=processing_time
+                        )
                 
                 st.session_state.tweet_content = description
 
@@ -478,11 +623,37 @@ with col2:
                         if os.path.exists(temp_image_path):
                             os.remove(temp_image_path)
                         
+                        # Store tweet result in Snowflake
+                        if st.session_state.snowflake_connected and hasattr(st.session_state, 'current_content_id'):
+                            try:
+                                tweet_record_id = snowflake_manager.store_posted_tweet(
+                                    st.session_state.current_content_id,
+                                    result if success else "",
+                                    st.session_state.tweet_content,
+                                    success,
+                                    result if not success else ""
+                                )
+                                
+                                # Log analytics event
+                                snowflake_manager.log_analytics_event(
+                                    st.session_state.snowflake_session_id,
+                                    'tweet_post',
+                                    success=success,
+                                    error_type=result if not success else ""
+                                )
+                                
+                                if tweet_record_id:
+                                    st.success("📊 Tweet data stored in database")
+                                    
+                            except Exception as e:
+                                st.warning(f"Could not store tweet data: {str(e)}")
+                        
                         if success:
                             st.markdown(f"""
                             <div class="success-message">
                                 ✅ Tweet posted successfully!<br>
-                                Tweet ID: {result}
+                                Tweet ID: {result}<br>
+                                <a href="https://twitter.com/i/web/status/{result}" target="_blank">View Tweet</a>
                             </div>
                             """, unsafe_allow_html=True)
                         else:
@@ -499,11 +670,28 @@ with col2:
     else:
         st.info("👆 Upload an image and click 'Generate Tweet' to see the preview here")
 
+elif page == "📊 Analytics Dashboard":
+    # Import and show analytics dashboard
+    try:
+        from analytics_dashboard import show_analytics_dashboard, show_data_export
+        
+        # Main analytics content
+        show_analytics_dashboard()
+        
+        # Data export section
+        st.divider()
+        show_data_export()
+        
+    except ImportError:
+        st.error("❌ Analytics dashboard not available. Please ensure analytics_dashboard.py is in the project directory.")
+    except Exception as e:
+        st.error(f"❌ Error loading analytics dashboard: {str(e)}")
+
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 2rem;">
-    <p>🐦 AI Tweet Generator - Powered by Streamlit</p>
-    <p><small>Upload images and let AI create engaging tweets for you!</small></p>
+    <p>🐦 AI Tweet Generator - Powered by Streamlit & Snowflake</p>
+    <p><small>Upload images, generate tweets, and analyze your data!</small></p>
 </div>
 """, unsafe_allow_html=True)
