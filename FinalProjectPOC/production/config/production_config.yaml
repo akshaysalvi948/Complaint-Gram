@@ -1,0 +1,237 @@
+# Production Configuration for PostgreSQL to StarRocks Sync
+
+# PostgreSQL Configuration
+postgres:
+  host: "${POSTGRES_HOST:localhost}"
+  port: 5432
+  database: "${POSTGRES_DB:production_db}"
+  username: "${POSTGRES_USER:postgres}"
+  password: "${POSTGRES_PASSWORD:password}"
+  schema: "public"
+  connection_pool_size: 20
+  connection_timeout: 30
+  query_timeout: 300
+
+# StarRocks Configuration
+starrocks:
+  host: "${STARROCKS_HOST:localhost}"
+  port: 8030
+  database: "${STARROCKS_DB:production_db}"
+  username: "${STARROCKS_USER:root}"
+  password: "${STARROCKS_PASSWORD:root}"
+  buffer_flush_max_rows: 5000
+  buffer_flush_interval: "5s"
+  max_retries: 5
+  retry_delay: 2000
+  load_timeout: 600000
+
+# Flink Configuration
+flink:
+  jobmanager:
+    host: "${FLINK_JOBMANAGER_HOST:localhost}"
+    port: 8081
+  parallelism: 8
+  checkpoint_interval: 30000  # 30 seconds
+  checkpoint_timeout: 600000  # 10 minutes
+  min_pause_between_checkpoints: 10000  # 10 seconds
+  max_concurrent_checkpoints: 2
+  checkpointing_mode: "EXACTLY_ONCE"
+  restart_strategy: "exponential-delay"
+  restart_attempts: 5
+  restart_delay: 10000
+  restart_max_delay: 300000
+  restart_backoff_multiplier: 2.0
+
+# Tables to sync (production tables)
+tables:
+  - source_table: "users"
+    target_table: "users"
+    primary_key: "id"
+    columns:
+      - "id"
+      - "username"
+      - "email"
+      - "first_name"
+      - "last_name"
+      - "created_at"
+      - "updated_at"
+      - "is_active"
+    sync_mode: "cdc"
+    batch_size: 2000
+    sync_interval: 30
+    enabled: true
+
+  - source_table: "orders"
+    target_table: "orders"
+    primary_key: "id"
+    columns:
+      - "id"
+      - "user_id"
+      - "product_id"
+      - "quantity"
+      - "price"
+      - "status"
+      - "created_at"
+      - "updated_at"
+      - "shipped_at"
+    sync_mode: "cdc"
+    batch_size: 2000
+    sync_interval: 30
+    enabled: true
+
+  - source_table: "products"
+    target_table: "products"
+    primary_key: "id"
+    columns:
+      - "id"
+      - "name"
+      - "description"
+      - "price"
+      - "category_id"
+      - "in_stock"
+      - "created_at"
+      - "updated_at"
+    sync_mode: "cdc"
+    batch_size: 2000
+    sync_interval: 30
+    enabled: true
+
+  - source_table: "categories"
+    target_table: "categories"
+    primary_key: "id"
+    columns:
+      - "id"
+      - "name"
+      - "description"
+      - "parent_id"
+      - "created_at"
+      - "updated_at"
+    sync_mode: "cdc"
+    batch_size: 1000
+    sync_interval: 60
+    enabled: true
+
+# CDC Configuration
+cdc:
+  enabled: true
+  startup_mode: "initial"  # initial, latest, timestamp
+  snapshot_mode: "initial"
+  poll_interval_ms: 500
+  max_batch_size: 2000
+  max_wait_time_ms: 3000
+  snapshot_chunk_size: 16384
+  snapshot_fetch_size: 2048
+  heartbeat_interval: 15000
+  connect_timeout: 30000
+  connection_pool_size: 20
+
+# Monitoring Configuration
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_port: 8080
+  job_check_interval: 30  # seconds
+  metrics_collection_interval: 10  # seconds
+  alert_thresholds:
+    error_rate: 0.01  # 1%
+    latency_p99: 500.0  # 500ms
+    throughput_min: 1000.0  # 1000 records/second
+    memory_usage: 0.85  # 85%
+    cpu_usage: 0.80  # 80%
+
+# Error Handling Configuration
+error_handling:
+  max_retries: 5
+  retry_delay: 5000  # milliseconds
+  exponential_backoff: true
+  max_retry_delay: 300000  # 5 minutes
+  dead_letter_queue: true
+  alert_on_error: true
+  error_notification_webhook: "${ERROR_NOTIFICATION_WEBHOOK:}"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/production_sync.log"
+  max_file_size: 52428800  # 50MB
+  backup_count: 10
+  json_format: true
+  structured_logging: true
+
+# Security Configuration
+security:
+  enable_ssl: false
+  ssl_cert_path: "${SSL_CERT_PATH:}"
+  ssl_key_path: "${SSL_KEY_PATH:}"
+  enable_encryption: false
+  encryption_key: "${ENCRYPTION_KEY:}"
+  enable_audit_logging: true
+
+# Performance Configuration
+performance:
+  max_memory_usage: 0.8  # 80% of available memory
+  max_cpu_usage: 0.7  # 70% of available CPU
+  batch_processing_timeout: 300  # 5 minutes
+  connection_pool_exhaustion_threshold: 0.9  # 90%
+  checkpoint_compression: true
+  checkpoint_compression_algorithm: "lz4"
+
+# Alerting Configuration
+alerting:
+  enabled: true
+  webhook_url: "${ALERT_WEBHOOK_URL:}"
+  email_notifications: false
+  email_recipients: []
+  slack_webhook: "${SLACK_WEBHOOK:}"
+  pagerduty_integration_key: "${PAGERDUTY_INTEGRATION_KEY:}"
+  
+  # Alert rules
+  rules:
+    - name: "high_error_rate"
+      condition: "error_rate > 0.05"
+      severity: "warning"
+      cooldown: 300  # 5 minutes
+      
+    - name: "critical_error_rate"
+      condition: "error_rate > 0.1"
+      severity: "critical"
+      cooldown: 60  # 1 minute
+      
+    - name: "high_latency"
+      condition: "latency_p99 > 1000"
+      severity: "warning"
+      cooldown: 300
+      
+    - name: "low_throughput"
+      condition: "throughput < 100"
+      severity: "warning"
+      cooldown: 600  # 10 minutes
+      
+    - name: "high_memory_usage"
+      condition: "memory_usage > 0.9"
+      severity: "critical"
+      cooldown: 60
+      
+    - name: "high_cpu_usage"
+      condition: "cpu_usage > 0.9"
+      severity: "critical"
+      cooldown: 60
+
+# Backup Configuration
+backup:
+  enabled: true
+  checkpoint_retention_days: 7
+  log_retention_days: 30
+  backup_schedule: "0 2 * * *"  # Daily at 2 AM
+  backup_location: "${BACKUP_LOCATION:/backups}"
+  compression: true
+  encryption: false
+
+# Maintenance Configuration
+maintenance:
+  enabled: true
+  cleanup_interval: 3600  # 1 hour
+  log_rotation_interval: 86400  # 24 hours
+  metrics_retention_days: 90
+  health_check_cleanup_interval: 1800  # 30 minutes

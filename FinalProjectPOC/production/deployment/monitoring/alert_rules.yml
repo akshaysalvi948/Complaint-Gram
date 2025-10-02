@@ -1,0 +1,136 @@
+groups:
+  - name: sync_app_alerts
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: rate(sync_records_failed_total[5m]) / rate(sync_records_processed_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+
+      # Critical error rate alert
+      - alert: CriticalErrorRate
+        expr: rate(sync_records_failed_total[5m]) / rate(sync_records_processed_total[5m]) > 0.1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+
+      # High latency alert
+      - alert: HighLatency
+        expr: histogram_quantile(0.99, rate(sync_processing_latency_seconds_bucket[5m])) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High processing latency detected"
+          description: "P99 latency is {{ $value }}s for the last 5 minutes"
+
+      # Low throughput alert
+      - alert: LowThroughput
+        expr: sync_throughput_records_per_second < 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low throughput detected"
+          description: "Throughput is {{ $value }} records/second"
+
+      # No data received alert
+      - alert: NoDataReceived
+        expr: increase(sync_records_processed_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No data received"
+          description: "No records have been processed in the last 10 minutes"
+
+      # Checkpoint failures
+      - alert: CheckpointFailures
+        expr: rate(sync_checkpoints_failed_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Checkpoint failures detected"
+          description: "{{ $value }} checkpoint failures per second"
+
+      # Job errors
+      - alert: JobErrors
+        expr: sync_error_jobs > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Sync jobs in error state"
+          description: "{{ $value }} sync jobs are in error state"
+
+  - name: system_alerts
+    rules:
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }}"
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+      # Disk space low
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low"
+          description: "Disk usage is {{ $value | humanizePercentage }}"
+
+  - name: database_alerts
+    rules:
+      # PostgreSQL connection issues
+      - alert: PostgreSQLConnectionDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection down"
+          description: "PostgreSQL exporter is not responding"
+
+      # StarRocks connection issues
+      - alert: StarRocksConnectionDown
+        expr: up{job="starrocks"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "StarRocks connection down"
+          description: "StarRocks exporter is not responding"
+
+      # Flink JobManager down
+      - alert: FlinkJobManagerDown
+        expr: up{job="flink"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Flink JobManager down"
+          description: "Flink JobManager is not responding"

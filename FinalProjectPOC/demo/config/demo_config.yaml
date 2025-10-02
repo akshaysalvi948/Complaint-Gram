@@ -1,0 +1,67 @@
+# Demo Configuration for PostgreSQL to StarRocks Sync
+
+# PostgreSQL Configuration
+postgres:
+  host: "postgres"
+  port: 5432
+  database: "demo_db"
+  username: "demo_user"
+  password: "demo_password"
+  schema_name: "public"
+  
+# StarRocks Configuration
+starrocks:
+  host: "starrocks"
+  port: 3306
+  username: "root"
+  password: "root"
+  database: "demo_db"
+  
+# Flink Configuration
+flink:
+  jobmanager:
+    host: "localhost"
+    port: 8081
+  parallelism: 1
+  checkpoint_interval: 60000  # 1 minute
+  checkpoint_timeout: 300000  # 5 minutes
+  min_pause_between_checkpoints: 5000  # 5 seconds
+  
+# Tables to sync (2x2 demo)
+tables:
+  - source_table: "users"
+    target_table: "users"
+    primary_key: "id"
+    columns:
+      - "id"
+      - "username"
+      - "email"
+      - "created_at"
+      - "updated_at"
+      
+  - source_table: "orders"
+    target_table: "orders"
+    primary_key: "id"
+    columns:
+      - "id"
+      - "user_id"
+      - "product_name"
+      - "quantity"
+      - "price"
+      - "status"
+      - "created_at"
+      - "updated_at"
+
+# CDC Configuration
+cdc:
+  enabled: true
+  snapshot_mode: "initial"
+  poll_interval_ms: 1000
+  max_batch_size: 1000
+  max_wait_time_ms: 5000
+  
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/demo_sync.log"
