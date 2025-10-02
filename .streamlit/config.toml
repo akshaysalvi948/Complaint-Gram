@@ -1,0 +1,47 @@
+[global]
+# Streamlit configuration for production deployment
+
+# Development mode settings
+developmentMode = false
+logLevel = "info"
+
+[server]
+# Server configuration
+headless = true
+port = 8501
+enableCORS = false
+enableXsrfProtection = true
+
+# File upload settings
+maxUploadSize = 5
+maxMessageSize = 5
+
+[browser]
+# Browser settings
+gatherUsageStats = false
+showErrorDetails = false
+
+[theme]
+# Custom theme for professional look
+primaryColor = "#1DA1F2"  # Twitter blue
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+font = "sans serif"
+
+[client]
+# Client settings
+caching = true
+displayEnabled = true
+showErrorDetails = false
+
+[runner]
+# Runner settings
+magicEnabled = true
+installTracer = false
+fixMatplotlib = true
+
+[logger]
+# Logging configuration
+level = "info"
+messageFormat = "%(asctime)s %(message)s"

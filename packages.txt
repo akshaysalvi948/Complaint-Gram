@@ -1,0 +1,14 @@
+# System packages required for Streamlit Cloud deployment
+# These packages will be installed via apt-get
+
+# Image processing libraries
+libgl1-mesa-glx
+libglib2.0-0
+libsm6
+libxext6
+libxrender-dev
+libgomp1
+
+# Font libraries for better text rendering
+fonts-liberation
+libfontconfig1
