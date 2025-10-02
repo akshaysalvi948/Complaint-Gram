@@ -1,4 +1,0 @@
-# Live Demo Dependencies
-psycopg2-binary==2.9.7
-PyMySQL==1.1.0
-pyyaml==6.0.1
