@@ -1,6 +1,7 @@
-# GoDaddy DNS Configuration for Custom Domain
+# GoDaddy DNS Configuration for raiseyourvoice.co.in
 # Snowflake Account: GMOFVVK-QA77419
 # App: TweeterBot
+# Domain: raiseyourvoice.co.in
 
 ## DNS Records to Add in GoDaddy
 
@@ -31,10 +32,13 @@ TTL: 600
 
 ## Instructions:
 1. Log into your GoDaddy account
-2. Go to DNS Management for your domain
+2. Go to DNS Management for raiseyourvoice.co.in
 3. Add the CNAME records above
 4. Wait 24-48 hours for DNS propagation
-5. Test your domain
+5. Test your domain: https://raiseyourvoice.co.in
 
 ## Your Snowflake App URL:
 https://GMOFVVK-QA77419.snowflakecomputing.com/app/TweeterBot
+
+## Your Custom Domain URL (after setup):
+https://raiseyourvoice.co.in

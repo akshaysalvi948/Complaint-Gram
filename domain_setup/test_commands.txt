@@ -1,44 +1,45 @@
-# Testing Commands for Custom Domain Setup
+# Testing Commands for raiseyourvoice.co.in Domain Setup
 # Snowflake Account: GMOFVVK-QA77419
 # App: TweeterBot
+# Domain: raiseyourvoice.co.in
 
 ## 1. Test DNS Resolution
 # Check if your domain points to the correct Snowflake server
-nslookup yourdomain.com
-nslookup www.yourdomain.com
+nslookup raiseyourvoice.co.in
+nslookup www.raiseyourvoice.co.in
 
 # Check specific Snowflake server
 nslookup GMOFVVK-QA77419.snowflakecomputing.com
 
 ## 2. Test HTTP/HTTPS Access
 # Test HTTP (should redirect to HTTPS)
-curl -I http://yourdomain.com
-curl -I http://www.yourdomain.com
+curl -I http://raiseyourvoice.co.in
+curl -I http://www.raiseyourvoice.co.in
 
 # Test HTTPS
-curl -I https://yourdomain.com
-curl -I https://www.yourdomain.com
+curl -I https://raiseyourvoice.co.in
+curl -I https://www.raiseyourvoice.co.in
 
 # Test redirect to Snowflake app
-curl -L https://yourdomain.com
+curl -L https://raiseyourvoice.co.in
 
 ## 3. Test SSL Certificate
 # Check SSL certificate validity
-openssl s_client -connect yourdomain.com:443 -servername yourdomain.com
+openssl s_client -connect raiseyourvoice.co.in:443 -servername raiseyourvoice.co.in
 
 # Check certificate details
-echo | openssl s_client -connect yourdomain.com:443 -servername yourdomain.com 2>/dev/null | openssl x509 -noout -text
+echo | openssl s_client -connect raiseyourvoice.co.in:443 -servername raiseyourvoice.co.in 2>/dev/null | openssl x509 -noout -text
 
 ## 4. Test App Functionality
 # Open in browser and test:
-# 1. https://yourdomain.com
+# 1. https://raiseyourvoice.co.in
 # 2. Upload an image
 # 3. Generate a tweet
 # 4. Check if all features work
 
 ## 5. Performance Testing
 # Test loading speed
-curl -w "@curl-format.txt" -o /dev/null -s https://yourdomain.com
+curl -w "@curl-format.txt" -o /dev/null -s https://raiseyourvoice.co.in
 
 # Create curl-format.txt with:
 #      time_namelookup:  %{time_namelookup}\n
@@ -58,14 +59,14 @@ curl -w "@curl-format.txt" -o /dev/null -s https://yourdomain.com
 
 ## 7. Troubleshooting Commands
 # Check if domain resolves
-dig yourdomain.com
-dig www.yourdomain.com
+dig raiseyourvoice.co.in
+dig www.raiseyourvoice.co.in
 
 # Check HTTP headers
-curl -I -H "User-Agent: Mozilla/5.0" https://yourdomain.com
+curl -I -H "User-Agent: Mozilla/5.0" https://raiseyourvoice.co.in
 
 # Check for mixed content issues
-curl -s https://yourdomain.com | grep -i "http://"
+curl -s https://raiseyourvoice.co.in | grep -i "http://"
 
 ## 8. Expected Results
 # DNS Resolution: Should point to Snowflake IP

@@ -1,8 +1,9 @@
 {
-  "domain": "yourdomain.com",
+  "domain": "raiseyourvoice.co.in",
   "snowflake_account": "GMOFVVK-QA77419",
   "snowflake_app": "TweeterBot",
   "snowflake_url": "https://GMOFVVK-QA77419.snowflakecomputing.com/app/TweeterBot",
+  "custom_domain_url": "https://raiseyourvoice.co.in",
   "database": "TWEETERBOT_DB",
   "schema": "TWEET_DATA",
   "warehouse": "COMPUTE_WH",

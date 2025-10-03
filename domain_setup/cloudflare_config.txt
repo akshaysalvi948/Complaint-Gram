@@ -1,12 +1,13 @@
-# Cloudflare Configuration for Custom Domain
+# Cloudflare Configuration for raiseyourvoice.co.in
 # Snowflake Account: GMOFVVK-QA77419
 # App: TweeterBot
+# Domain: raiseyourvoice.co.in
 
 ## Step 1: Add Domain to Cloudflare
 1. Go to https://cloudflare.com
 2. Sign up for free account
 3. Click "Add a Site"
-4. Enter your domain name
+4. Enter: raiseyourvoice.co.in
 5. Select "Free" plan
 
 ## Step 2: Update Nameservers in GoDaddy
@@ -27,11 +28,11 @@ Target: GMOFVVK-QA77419.snowflakecomputing.com
 Proxy status: Proxied (orange cloud)
 
 ## Step 4: Page Rules in Cloudflare
-URL: yourdomain.com/*
+URL: raiseyourvoice.co.in/*
 Setting: Forwarding URL (301 redirect)
 Destination: https://GMOFVVK-QA77419.snowflakecomputing.com/app/TweeterBot
 
-URL: www.yourdomain.com/*
+URL: www.raiseyourvoice.co.in/*
 Setting: Forwarding URL (301 redirect)
 Destination: https://GMOFVVK-QA77419.snowflakecomputing.com/app/TweeterBot
 
