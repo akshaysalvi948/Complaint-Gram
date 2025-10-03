@@ -233,57 +233,93 @@ def encode_image_to_base64(image):
     return img_str
 
 def generate_image_description_with_perplexity(image, api_key):
-    """Generate image description using Perplexity AI via direct HTTP requests"""
-    try:
-        # Convert image to base64
-        img_base64 = encode_image_to_base64(image)
-        image_url = f"data:image/jpeg;base64,{img_base64}"
+    """Generate image description using Perplexity AI with retry logic and fallback"""
+    import time
+    
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Convert image to base64
+            img_base64 = encode_image_to_base64(image)
+            image_url = f"data:image/jpeg;base64,{img_base64}"
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
 
-        payload = {
-            "model": "sonar-pro",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image_url}
-                        }
-                    ]
-                }
-            ],
-            "max_tokens": 150,
-            "temperature": 0.7
-        }
+            payload = {
+                "model": "sonar-pro",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": image_url}
+                            }
+                        ]
+                    }
+                ],
+                "max_tokens": 150,
+                "temperature": 0.7
+            }
 
-        response = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
 
-        if response.status_code == 200:
-            result = response.json()
-            return result['choices'][0]['message']['content'].strip()
-        else:
-            return f"Error: {response.status_code} - {response.text}"
+            if response.status_code == 200:
+                result = response.json()
+                return result['choices'][0]['message']['content'].strip()
+            else:
+                error_msg = f"Error: {response.status_code} - {response.text}"
+                if attempt < max_retries - 1:
+                    st.warning(f"Perplexity API attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return error_msg
 
-    except Exception as e:
-        return f"Error generating description with Perplexity AI: {str(e)}"
+        except requests.exceptions.ConnectionError as e:
+            if "Device or resource busy" in str(e) or "Max retries exceeded" in str(e):
+                if attempt < max_retries - 1:
+                    st.warning(f"Network connection issue (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return f"Network connection failed after {max_retries} attempts. Please try again later or switch to a different AI provider."
+            else:
+                return f"Connection error: {str(e)}"
+        except requests.exceptions.Timeout as e:
+            if attempt < max_retries - 1:
+                st.warning(f"Request timeout (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                continue
+            else:
+                return f"Request timeout after {max_retries} attempts: {str(e)}"
+        except Exception as e:
+            if attempt < max_retries - 1:
+                st.warning(f"Unexpected error (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                continue
+            else:
+                return f"Error generating description with Perplexity AI: {str(e)}"
+    
+    return "Failed to generate description after all retry attempts."
 
 def generate_image_description_with_huggingface(image, token=""):
     """Generate image description using Hugging Face's free API"""
@@ -617,6 +653,13 @@ if page == "🐦 Tweet Generator":
                     if ai_provider == "Perplexity AI (Recommended)":
                         if perplexity_key:
                             description = generate_image_description_with_perplexity(image, perplexity_key)
+                            
+                            # If Perplexity fails with network issues, try Hugging Face as fallback
+                            if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
+                                st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
+                                description = generate_image_description_with_huggingface(image, hf_token)
+                                if not description.startswith("Error"):
+                                    st.success("✅ Successfully generated description using Hugging Face!")
                         else:
                             st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
                             st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
@@ -633,8 +676,29 @@ if page == "🐦 Tweet Generator":
                     
                     processing_time = int((time.time() - start_time) * 1000)
                     
+                    # Check if description generation was successful
+                    if description.startswith("Error") or description.startswith("Failed"):
+                        st.error(f"❌ {description}")
+                        st.info("💡 Try switching to a different AI provider in the sidebar")
+                        
+                        # Add manual fallback option for Perplexity
+                        if ai_provider == "Perplexity AI (Recommended)":
+                            st.info("🔄 You can also try Hugging Face as a fallback:")
+                            if st.button("🔄 Try Hugging Face Instead", type="secondary"):
+                                with st.spinner("Trying Hugging Face..."):
+                                    fallback_description = generate_image_description_with_huggingface(image, hf_token)
+                                    if not fallback_description.startswith("Error"):
+                                        st.success("✅ Successfully generated description using Hugging Face!")
+                                        description = fallback_description
+                                        st.session_state.tweet_content = description
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Hugging Face also failed: {fallback_description}")
+                    else:
+                        st.success("✅ Tweet generated successfully!")
+                    
                     # Store AI generation data
-                    if description:
+                    if description and not description.startswith("Error") and not description.startswith("Failed"):
                         store_data_in_snowflake(
                             st.session_state.session_id,
                             "ai_generation",
