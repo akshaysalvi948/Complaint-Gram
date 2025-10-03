@@ -205,59 +205,11 @@ with st.sidebar:
         else:
             st.success("✅ OpenAI API configured")
     
-    # Debug Mode
-    st.subheader("🔧 Debug")
-    debug_mode = st.checkbox("Enable Debug Mode", help="Show detailed error information and debug messages")
-    st.session_state.debug_mode = debug_mode
-    
     # Snowflake Database Status
     st.subheader("🗄️ Database")
-    # Test Snowflake connection
-    try:
-        conn = st.connection("snowflake")
-        # Test basic connection
-        test_result = conn.query("SELECT 1 as test_connection")
-        if not test_result.empty:
-            st.success("✅ Snowflake connected (Native SiS)")
-            st.info("💡 Using Snowflake's native connection")
-            
-            # Test if analytics table exists
-            try:
-                table_test = conn.query("SELECT 1 FROM TWEETERBOT_ANALYTICS LIMIT 1")
-                st.success("✅ TWEETERBOT_ANALYTICS table accessible")
-            except Exception as table_error:
-                if "does not exist" in str(table_error).lower():
-                    st.warning("⚠️ TWEETERBOT_ANALYTICS table not found")
-                    st.info("💡 Click the button below to create the table")
-                    if st.button("🔧 Create Analytics Table"):
-                        create_table_sql = """
-                        CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
-                            session_id VARCHAR(255),
-                            action_type VARCHAR(100),
-                            timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-                            image_name VARCHAR(255),
-                            image_size INT,
-                            ai_provider VARCHAR(100),
-                            generated_text VARCHAR(10000),
-                            processing_time_ms INT,
-                            tweet_id VARCHAR(255),
-                            tweet_text VARCHAR(280),
-                            success BOOLEAN
-                        );
-                        """
-                        try:
-                            conn.query(create_table_sql)
-                            st.success("✅ Table created successfully!")
-                            st.rerun()
-                        except Exception as create_error:
-                            st.error(f"❌ Failed to create table: {str(create_error)}")
-                else:
-                    st.error(f"❌ Table access error: {str(table_error)}")
-        else:
-            st.error("❌ Snowflake connection test failed")
-    except Exception as conn_error:
-        st.error(f"❌ Snowflake connection error: {str(conn_error)}")
-        st.info("💡 Make sure you're running in Snowflake SiS environment")
+    # In Snowflake SiS, we're already connected to Snowflake
+    st.success("✅ Snowflake connected (Native SiS)")
+    st.info("💡 Using Snowflake's native connection")
 
 # Initialize session state
 if 'tweet_content' not in st.session_state:
@@ -276,86 +228,57 @@ def encode_image_to_base64(image):
     return img_str
 
 def generate_image_description_with_perplexity(image, api_key):
-    """Generate image description using Perplexity AI via direct HTTP requests with retry logic"""
-    import time
-    
-    max_retries = 3
-    retry_delay = 2  # seconds
-    
-    for attempt in range(max_retries):
-        try:
-            # Convert image to base64
-            img_base64 = encode_image_to_base64(image)
-            image_url = f"data:image/jpeg;base64,{img_base64}"
+    """Generate image description using Perplexity AI via direct HTTP requests"""
+    try:
+        # Convert image to base64
+        img_base64 = encode_image_to_base64(image)
+        image_url = f"data:image/jpeg;base64,{img_base64}"
 
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
 
-            payload = {
-                "model": "sonar-pro",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_url}
-                            }
-                        ]
-                    }
-                ],
-                "max_tokens": 150,
-                "temperature": 0.7
-            }
+        payload = {
+            "model": "sonar-pro",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_url}
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": 150,
+            "temperature": 0.7
+        }
 
-            response = requests.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
+        response = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
 
-            if response.status_code == 200:
-                result = response.json()
-                return result['choices'][0]['message']['content'].strip()
-            else:
-                error_msg = f"Error: {response.status_code} - {response.text}"
-                if attempt < max_retries - 1:
-                    st.warning(f"Perplexity API attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    return error_msg
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content'].strip()
+        else:
+            return f"Error: {response.status_code} - {response.text}"
 
-        except requests.exceptions.ConnectionError as e:
-            if "Device or resource busy" in str(e) or "Max retries exceeded" in str(e):
-                if attempt < max_retries - 1:
-                    st.warning(f"Network connection issue (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    return f"Network connection failed after {max_retries} attempts. Please try again later or switch to a different AI provider."
-            else:
-                return f"Connection error: {str(e)}"
-        except Exception as e:
-            if attempt < max_retries - 1:
-                st.warning(f"Unexpected error (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                continue
-            else:
-                return f"Error generating description with Perplexity AI: {str(e)}"
-    
-    return "Failed to generate description after all retry attempts."
+    except Exception as e:
+        return f"Error generating description with Perplexity AI: {str(e)}"
 
 def generate_image_description_with_huggingface(image, token=""):
     """Generate image description using Hugging Face's free API"""
@@ -534,145 +457,44 @@ def post_tweet_direct_api(content, image_bytes, api_key, api_secret, access_toke
         return False, str(e)
 
 def store_data_in_snowflake(session_id, action, data):
-    """Store data in Snowflake using native SiS connection with detailed error handling"""
+    """Store data in Snowflake using native SiS connection"""
     try:
         # In Snowflake SiS, we can use st.connection to access Snowflake
         conn = st.connection("snowflake")
         
-        # First, check if table exists
-        try:
-            conn.query("SELECT 1 FROM TWEETERBOT_ANALYTICS LIMIT 1")
-        except Exception as table_error:
-            error_msg = str(table_error)
-            if "does not exist" in error_msg.lower():
-                st.error("❌ TWEETERBOT_ANALYTICS table does not exist!")
-                st.info("💡 Please run this SQL in your Snowflake worksheet:")
-                st.code("""
-CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
-    session_id VARCHAR(255),
-    action_type VARCHAR(100),
-    timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-    image_name VARCHAR(255),
-    image_size INT,
-    ai_provider VARCHAR(100),
-    generated_text VARCHAR(10000),
-    processing_time_ms INT,
-    tweet_id VARCHAR(255),
-    tweet_text VARCHAR(280),
-    success BOOLEAN
-);
-                """, language="sql")
-                return False
-            else:
-                st.error(f"❌ Table access error: {error_msg}")
-                return False
-        
-        # Prepare the query based on action using Snowflake SiS compatible format
         if action == "image_upload":
-            # Escape single quotes in string values
-            session_id_escaped = session_id.replace("'", "''")
-            action_escaped = action.replace("'", "''")
-            name_escaped = data.get('name', '').replace("'", "''")
-            size = data.get('size', 0)
-            
-            query = f"""
+            query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, image_name, image_size
-            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{name_escaped}', {size})
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?)
             """
+            conn.query(query, params=[session_id, action, data.get('name', ''), data.get('size', 0)])
             
         elif action == "ai_generation":
-            # Escape single quotes in string values
-            session_id_escaped = session_id.replace("'", "''")
-            action_escaped = action.replace("'", "''")
-            provider_escaped = data.get('provider', '').replace("'", "''")
-            text_escaped = data.get('text', '').replace("'", "''")
-            processing_time = data.get('processing_time', 0)
-            
-            query = f"""
+            query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
-            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{provider_escaped}', '{text_escaped}', {processing_time})
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
             """
+            conn.query(query, params=[
+                session_id, action, data.get('provider', ''), 
+                data.get('text', ''), data.get('processing_time', 0)
+            ])
             
         elif action == "tweet_post":
-            # Escape single quotes in string values
-            session_id_escaped = session_id.replace("'", "''")
-            action_escaped = action.replace("'", "''")
-            tweet_id_escaped = data.get('tweet_id', '').replace("'", "''")
-            text_escaped = data.get('text', '').replace("'", "''")
-            success = data.get('success', False)
-            
-            query = f"""
+            query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, tweet_id, tweet_text, success
-            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{tweet_id_escaped}', '{text_escaped}', {str(success).upper()})
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
             """
-        else:
-            st.warning(f"Unknown action type: {action}")
-            return False
-        
-        # Execute the query with detailed error handling
-        try:
-            if st.session_state.get('debug_mode', False):
-                st.info(f"🔍 Debug: Executing query: {query}")
+            conn.query(query, params=[
+                session_id, action, data.get('tweet_id', ''), 
+                data.get('text', ''), data.get('success', False)
+            ])
             
-            conn.query(query)
-            st.success(f"✅ Data stored successfully for {action}")
-            return True
-        except Exception as query_error:
-            error_msg = str(query_error)
-            st.warning(f"⚠️ Query failed with string formatting, trying parameterized approach...")
-            
-            # Fallback to parameterized queries
-            try:
-                if action == "image_upload":
-                    fallback_query = """
-                    INSERT INTO TWEETERBOT_ANALYTICS (
-                        session_id, action_type, timestamp, image_name, image_size
-                    ) VALUES (%s, %s, CURRENT_TIMESTAMP(), %s, %s)
-                    """
-                    conn.query(fallback_query, params=[session_id, action, data.get('name', ''), data.get('size', 0)])
-                    
-                elif action == "ai_generation":
-                    fallback_query = """
-                    INSERT INTO TWEETERBOT_ANALYTICS (
-                        session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
-                    ) VALUES (%s, %s, CURRENT_TIMESTAMP(), %s, %s, %s)
-                    """
-                    conn.query(fallback_query, params=[
-                        session_id, action, data.get('provider', ''), 
-                        data.get('text', ''), data.get('processing_time', 0)
-                    ])
-                    
-                elif action == "tweet_post":
-                    fallback_query = """
-                    INSERT INTO TWEETERBOT_ANALYTICS (
-                        session_id, action_type, timestamp, tweet_id, tweet_text, success
-                    ) VALUES (%s, %s, CURRENT_TIMESTAMP(), %s, %s, %s)
-                    """
-                    conn.query(fallback_query, params=[
-                        session_id, action, data.get('tweet_id', ''), 
-                        data.get('text', ''), data.get('success', False)
-                    ])
-                
-                st.success(f"✅ Data stored successfully for {action} (using fallback method)")
-                return True
-                
-            except Exception as fallback_error:
-                st.error(f"❌ Both query methods failed:")
-                st.error(f"String format error: {error_msg}")
-                st.error(f"Parameterized error: {str(fallback_error)}")
-                st.info(f"Original query: {query}")
-                return False
-            
+        return True
     except Exception as e:
-        error_msg = str(e)
-        st.error(f"❌ Snowflake connection error: {error_msg}")
-        st.info("💡 Troubleshooting steps:")
-        st.info("1. Check if you're running in Snowflake SiS environment")
-        st.info("2. Verify your Snowflake connection is properly configured")
-        st.info("3. Ensure you have the necessary permissions")
+        st.warning(f"Could not store data in Snowflake: {str(e)}")
         return False
 
 # Show content based on selected page
@@ -692,15 +514,12 @@ if page == "🐦 Tweet Generator":
         if uploaded_file is not None:
             # Display uploaded image
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image")
+            st.image(image, caption="Uploaded Image", width='stretch')
             
             # Store image in session state
             st.session_state.uploaded_image = image
             
             # Store image data in Snowflake
-            if st.session_state.get('debug_mode', False):
-                st.info(f"🔍 Debug: Storing image data - Session: {st.session_state.session_id}, Name: {uploaded_file.name}, Size: {len(uploaded_file.getvalue())}")
-            
             store_data_in_snowflake(
                 st.session_state.session_id,
                 "image_upload",
@@ -718,12 +537,6 @@ if page == "🐦 Tweet Generator":
                     if ai_provider == "Perplexity AI (Recommended)":
                         if perplexity_key:
                             description = generate_image_description_with_perplexity(image, perplexity_key)
-                            # If Perplexity fails with network issues, try Hugging Face as fallback
-                            if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
-                                st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
-                                description = generate_image_description_with_huggingface(image, hf_token)
-                                if not description.startswith("Error"):
-                                    st.success("✅ Successfully generated description using Hugging Face!")
                         else:
                             st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
                             st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
