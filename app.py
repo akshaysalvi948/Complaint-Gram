@@ -205,6 +205,11 @@ with st.sidebar:
         else:
             st.success("✅ OpenAI API configured")
     
+    # Debug Mode
+    st.subheader("🔧 Debug")
+    debug_mode = st.checkbox("Enable Debug Mode", help="Show detailed error information and debug messages")
+    st.session_state.debug_mode = debug_mode
+    
     # Snowflake Database Status
     st.subheader("🗄️ Database")
     # In Snowflake SiS, we're already connected to Snowflake
@@ -457,44 +462,119 @@ def post_tweet_direct_api(content, image_bytes, api_key, api_secret, access_toke
         return False, str(e)
 
 def store_data_in_snowflake(session_id, action, data):
-    """Store data in Snowflake using native SiS connection"""
+    """Store data in Snowflake using native SiS connection with table creation"""
     try:
         # In Snowflake SiS, we can use st.connection to access Snowflake
         conn = st.connection("snowflake")
         
+        # First, ensure the table exists
+        try:
+            # Try to query the table to see if it exists
+            conn.query("SELECT 1 FROM TWEETERBOT_ANALYTICS LIMIT 1")
+        except Exception as table_error:
+            if "does not exist" in str(table_error).lower():
+                st.info("🔧 Creating TWEETERBOT_ANALYTICS table...")
+                
+                # Create the table
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
+                    session_id VARCHAR(255),
+                    action_type VARCHAR(100),
+                    timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+                    image_name VARCHAR(255),
+                    image_size INT,
+                    ai_provider VARCHAR(100),
+                    generated_text VARCHAR(10000),
+                    processing_time_ms INT,
+                    tweet_id VARCHAR(255),
+                    tweet_text VARCHAR(280),
+                    success BOOLEAN
+                );
+                """
+                
+                try:
+                    conn.query(create_table_sql)
+                    st.success("✅ TWEETERBOT_ANALYTICS table created successfully!")
+                except Exception as create_error:
+                    st.error(f"❌ Failed to create table: {str(create_error)}")
+                    st.info("💡 Please run this SQL manually in your Snowflake worksheet:")
+                    st.code(create_table_sql, language="sql")
+                    return False
+            else:
+                st.error(f"❌ Table access error: {str(table_error)}")
+                return False
+        
+        # Now insert data using direct string formatting (Snowflake SiS compatible)
         if action == "image_upload":
-            query = """
+            # Escape single quotes in string values
+            session_id_escaped = session_id.replace("'", "''")
+            action_escaped = action.replace("'", "''")
+            name_escaped = data.get('name', '').replace("'", "''")
+            size = data.get('size', 0)
+            
+            query = f"""
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, image_name, image_size
-            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?)
+            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{name_escaped}', {size})
             """
-            conn.query(query, params=[session_id, action, data.get('name', ''), data.get('size', 0)])
+            
+            if st.session_state.get('debug_mode', False):
+                st.info(f"🔍 Debug: Executing query: {query}")
+            
+            conn.query(query)
             
         elif action == "ai_generation":
-            query = """
+            # Escape single quotes in string values
+            session_id_escaped = session_id.replace("'", "''")
+            action_escaped = action.replace("'", "''")
+            provider_escaped = data.get('provider', '').replace("'", "''")
+            text_escaped = data.get('text', '').replace("'", "''")
+            processing_time = data.get('processing_time', 0)
+            
+            query = f"""
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
-            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
+            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{provider_escaped}', '{text_escaped}', {processing_time})
             """
-            conn.query(query, params=[
-                session_id, action, data.get('provider', ''), 
-                data.get('text', ''), data.get('processing_time', 0)
-            ])
+            
+            if st.session_state.get('debug_mode', False):
+                st.info(f"🔍 Debug: Executing query: {query}")
+            
+            conn.query(query)
             
         elif action == "tweet_post":
-            query = """
+            # Escape single quotes in string values
+            session_id_escaped = session_id.replace("'", "''")
+            action_escaped = action.replace("'", "''")
+            tweet_id_escaped = data.get('tweet_id', '').replace("'", "''")
+            text_escaped = data.get('text', '').replace("'", "''")
+            success = data.get('success', False)
+            
+            query = f"""
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, tweet_id, tweet_text, success
-            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
+            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{tweet_id_escaped}', '{text_escaped}', {str(success).upper()})
             """
-            conn.query(query, params=[
-                session_id, action, data.get('tweet_id', ''), 
-                data.get('text', ''), data.get('success', False)
-            ])
             
+            if st.session_state.get('debug_mode', False):
+                st.info(f"🔍 Debug: Executing query: {query}")
+            
+            conn.query(query)
+        else:
+            st.warning(f"Unknown action type: {action}")
+            return False
+            
+        st.success(f"✅ Data stored successfully for {action}")
         return True
+        
     except Exception as e:
-        st.warning(f"Could not store data in Snowflake: {str(e)}")
+        error_msg = str(e)
+        st.error(f"❌ Could not store data in Snowflake: {error_msg}")
+        st.info("💡 Troubleshooting steps:")
+        st.info("1. Check if you're running in Snowflake SiS environment")
+        st.info("2. Verify your Snowflake connection is properly configured")
+        st.info("3. Ensure you have the necessary permissions")
+        st.info("4. Try running the table creation SQL manually")
         return False
 
 # Show content based on selected page
