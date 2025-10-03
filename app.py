@@ -3,15 +3,14 @@ import requests
 import base64
 import io
 from PIL import Image
-import tweepy
 import os
-from dotenv import load_dotenv
 import time
-from snowflake_manager import snowflake_manager
+import json
+import hashlib
+import hmac
+import urllib.parse
+from datetime import datetime
 import pandas as pd
-
-# Load environment variables
-load_dotenv()
 
 # Page configuration
 st.set_page_config(
@@ -90,23 +89,28 @@ elif page == "📊 Analytics Dashboard":
     </div>
     """, unsafe_allow_html=True)
 
-# Secure credential management
-def get_secret_or_env(secret_key, env_key, default=""):
-    """Securely get credentials from Streamlit secrets or environment variables"""
+# Secure credential management - Snowflake SiS compatible
+def get_secret(secret_key, default=""):
+    """Get credentials from Streamlit secrets only (Snowflake SiS compatible)"""
     try:
-        return st.secrets[secret_key]
+        # Navigate nested secrets
+        keys = secret_key.split('.')
+        value = st.secrets
+        for key in keys:
+            value = value[key]
+        return value
     except:
-        return os.getenv(env_key, default)
+        return default
 
-# Get credentials securely (not exposed to frontend)
-twitter_api_key = get_secret_or_env("twitter.api_key", "TWITTER_API_KEY")
-twitter_api_secret = get_secret_or_env("twitter.api_secret", "TWITTER_API_SECRET")
-twitter_access_token = get_secret_or_env("twitter.access_token", "TWITTER_ACCESS_TOKEN")
-twitter_access_token_secret = get_secret_or_env("twitter.access_token_secret", "TWITTER_ACCESS_TOKEN_SECRET")
+# Get credentials securely from Streamlit secrets
+twitter_api_key = get_secret("twitter.api_key")
+twitter_api_secret = get_secret("twitter.api_secret")
+twitter_access_token = get_secret("twitter.access_token")
+twitter_access_token_secret = get_secret("twitter.access_token_secret")
 
-perplexity_key = get_secret_or_env("ai.perplexity_api_key", "PERPLEXITY_API_KEY")
-hf_token = get_secret_or_env("ai.huggingface_token", "HUGGINGFACE_TOKEN")
-openai_key = get_secret_or_env("ai.openai_api_key", "OPENAI_API_KEY")
+perplexity_key = get_secret("ai.perplexity_api_key")
+hf_token = get_secret("ai.huggingface_token")
+openai_key = get_secret("ai.openai_api_key")
 
 # Sidebar for configuration
 with st.sidebar:
@@ -119,12 +123,31 @@ with st.sidebar:
     else:
         st.error("❌ Twitter API not configured")
         st.info("💡 Add your Twitter API credentials to Streamlit secrets")
-        with st.expander("📝 How to add Twitter API keys"):
+        with st.expander("📝 How to add Twitter API keys for Snowflake SiS"):
             st.markdown("""
-            **For Streamlit Cloud:**
-            1. Go to your app's settings
-            2. Add these secrets:
+            **For Snowflake Streamlit in Snowflake:**
+            1. In your Snowflake worksheet, add secrets:
+            ```sql
+            -- Create secrets for Twitter API
+            CREATE SECRET twitter_api_key
+            TYPE = GENERIC_STRING
+            SECRET_STRING = 'your_twitter_api_key';
+            
+            CREATE SECRET twitter_api_secret
+            TYPE = GENERIC_STRING
+            SECRET_STRING = 'your_twitter_api_secret';
+            
+            CREATE SECRET twitter_access_token
+            TYPE = GENERIC_STRING
+            SECRET_STRING = 'your_access_token';
+            
+            CREATE SECRET twitter_access_token_secret
+            TYPE = GENERIC_STRING
+            SECRET_STRING = 'your_access_token_secret';
             ```
+            
+            **Or use secrets.toml in your app:**
+            ```toml
             [twitter]
             api_key = "your_key"
             api_secret = "your_secret"
@@ -184,55 +207,18 @@ with st.sidebar:
     
     # Snowflake Database Status
     st.subheader("🗄️ Database")
-    if st.session_state.get('snowflake_connected', False):
-        st.success("✅ Snowflake connected")
-        if st.session_state.get('snowflake_session_id'):
-            # Get session stats
-            session_stats = snowflake_manager.get_user_session_stats(st.session_state.snowflake_session_id)
-            if session_stats:
-                st.info(f"📊 Session Stats: {session_stats.get('images_uploaded', 0)} images, {session_stats.get('ai_generations', 0)} AI generations, {session_stats.get('tweets_posted', 0)} tweets")
-    else:
-        st.warning("⚠️ Snowflake not connected")
-        st.info("💡 Add Snowflake credentials to enable data storage and analytics")
-        with st.expander("📝 How to configure Snowflake"):
-            st.markdown("""
-            **For Streamlit Cloud:**
-            1. Go to your app's settings
-            2. Add these secrets:
-            ```
-            [snowflake]
-            account = "your_account"
-            user = "your_username"
-            password = "your_password"
-            warehouse = "your_warehouse"
-            database = "TWEETERBOT_DB"
-            schema = "TWEET_DATA"
-            role = "your_role"
-            ```
-            """)
+    # In Snowflake SiS, we're already connected to Snowflake
+    st.success("✅ Snowflake connected (Native SiS)")
+    st.info("💡 Using Snowflake's native connection")
 
 # Initialize session state
 if 'tweet_content' not in st.session_state:
     st.session_state.tweet_content = ""
 if 'uploaded_image' not in st.session_state:
     st.session_state.uploaded_image = None
-if 'snowflake_session_id' not in st.session_state:
-    st.session_state.snowflake_session_id = ""
-if 'snowflake_connected' not in st.session_state:
-    st.session_state.snowflake_connected = False
-
-# Initialize Snowflake connection
-if not st.session_state.snowflake_connected:
-    if snowflake_manager.connect():
-        st.session_state.snowflake_connected = True
-        # Create user session
-        try:
-            user_ip = st.context.headers.get("x-forwarded-for", "unknown")
-            user_agent = st.context.headers.get("user-agent", "unknown")
-        except:
-            user_ip = "unknown"
-            user_agent = "unknown"
-        st.session_state.snowflake_session_id = snowflake_manager.create_user_session(user_ip, user_agent)
+if 'session_id' not in st.session_state:
+    # Generate a simple session ID for Snowflake SiS
+    st.session_state.session_id = hashlib.md5(f"{datetime.now().isoformat()}".encode()).hexdigest()
 
 def encode_image_to_base64(image):
     """Convert PIL Image to base64 string"""
@@ -242,25 +228,20 @@ def encode_image_to_base64(image):
     return img_str
 
 def generate_image_description_with_perplexity(image, api_key):
-    """Generate a short and impactful complaint tweet about road conditions using Perplexity AI"""
+    """Generate image description using Perplexity AI via direct HTTP requests"""
     try:
-        import openai
-
-        # Initialize Perplexity AI client
-        client = openai.OpenAI(
-            api_key=api_key,
-            base_url="https://api.perplexity.ai"
-        )
-
         # Convert image to base64
         img_base64 = encode_image_to_base64(image)
-
-        # Create the image URL for the API
         image_url = f"data:image/jpeg;base64,{img_base64}"
 
-        response = client.chat.completions.create(
-            model="sonar-pro",
-            messages=[
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": "sonar-pro",
+            "messages": [
                 {
                     "role": "system",
                     "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
@@ -279,15 +260,25 @@ def generate_image_description_with_perplexity(image, api_key):
                     ]
                 }
             ],
-            max_tokens=150,
-            temperature=0.7
+            "max_tokens": 150,
+            "temperature": 0.7
+        }
+
+        response = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30
         )
 
-        return response.choices[0].message.content.strip()
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content'].strip()
+        else:
+            return f"Error: {response.status_code} - {response.text}"
 
     except Exception as e:
         return f"Error generating description with Perplexity AI: {str(e)}"
-
 
 def generate_image_description_with_huggingface(image, token=""):
     """Generate image description using Hugging Face's free API"""
@@ -305,7 +296,7 @@ def generate_image_description_with_huggingface(image, token=""):
         response = requests.post(
             API_URL,
             headers=headers,
-            data=img_base64,
+            data=base64.b64decode(img_base64),
             timeout=30
         )
         
@@ -322,18 +313,19 @@ def generate_image_description_with_huggingface(image, token=""):
         return f"Error generating description: {str(e)}"
 
 def generate_image_description_with_openai(image, api_key):
-    """Generate image description using OpenAI API"""
+    """Generate image description using OpenAI API via direct HTTP requests"""
     try:
-        import openai
-        
-        openai.api_key = api_key
-        
         # Convert image to base64
         img_base64 = encode_image_to_base64(image)
         
-        response = openai.ChatCompletion.create(
-            model="gpt-4-vision-preview",
-            messages=[
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "gpt-4-vision-preview",
+            "messages": [
                 {
                     "role": "user",
                     "content": [
@@ -347,33 +339,163 @@ def generate_image_description_with_openai(image, api_key):
                     ]
                 }
             ],
-            max_tokens=150
+            "max_tokens": 150
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30
         )
         
-        return response.choices[0].message.content
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        else:
+            return f"Error: {response.status_code} - {response.text}"
         
     except Exception as e:
         return f"Error generating description: {str(e)}"
 
-def post_tweet(content, image_path, api_key, api_secret, access_token, access_token_secret):
-    """Post tweet with text and image"""
+def create_oauth_signature(method, url, params, consumer_secret, token_secret):
+    """Create OAuth 1.0a signature for Twitter API"""
+    # Sort parameters
+    sorted_params = sorted(params.items())
+    
+    # Create parameter string
+    param_string = "&".join([f"{k}={v}" for k, v in sorted_params])
+    
+    # Create signature base string
+    signature_base = f"{method}&{urllib.parse.quote(url, safe='')}&{urllib.parse.quote(param_string, safe='')}"
+    
+    # Create signing key
+    signing_key = f"{urllib.parse.quote(consumer_secret, safe='')}&{urllib.parse.quote(token_secret, safe='')}"
+    
+    # Create signature
+    signature = base64.b64encode(
+        hmac.new(signing_key.encode(), signature_base.encode(), hashlib.sha1).digest()
+    ).decode()
+    
+    return signature
+
+def post_tweet_direct_api(content, image_bytes, api_key, api_secret, access_token, access_token_secret):
+    """Post tweet using direct Twitter API calls (no tweepy dependency)"""
     try:
-        # Initialize Twitter API
-        auth = tweepy.OAuth1UserHandler(
-            api_key, api_secret, access_token, access_token_secret
+        # Step 1: Upload media
+        media_upload_url = "https://upload.twitter.com/1.1/media/upload.json"
+        
+        # OAuth parameters for media upload
+        oauth_params = {
+            'oauth_consumer_key': api_key,
+            'oauth_nonce': hashlib.md5(f"{datetime.now().isoformat()}".encode()).hexdigest(),
+            'oauth_signature_method': 'HMAC-SHA1',
+            'oauth_timestamp': str(int(datetime.now().timestamp())),
+            'oauth_token': access_token,
+            'oauth_version': '1.0'
+        }
+        
+        # Create signature for media upload
+        oauth_params['oauth_signature'] = create_oauth_signature(
+            'POST', media_upload_url, oauth_params, api_secret, access_token_secret
         )
-        api = tweepy.API(auth)
         
-        # Upload image
-        media = api.media_upload(image_path)
+        # Create authorization header
+        auth_header = 'OAuth ' + ', '.join([f'{k}="{v}"' for k, v in sorted(oauth_params.items())])
         
-        # Post tweet with media
-        tweet = api.update_status(status=content, media_ids=[media.media_id])
+        # Upload media
+        files = {'media': ('image.jpg', image_bytes, 'image/jpeg')}
+        headers = {'Authorization': auth_header}
         
-        return True, tweet.id_str
+        media_response = requests.post(media_upload_url, headers=headers, files=files, timeout=30)
+        
+        if media_response.status_code != 200:
+            return False, f"Media upload failed: {media_response.status_code} - {media_response.text}"
+        
+        media_id = media_response.json()['media_id_string']
+        
+        # Step 2: Post tweet with media
+        tweet_url = "https://api.twitter.com/1.1/statuses/update.json"
+        
+        tweet_params = {
+            'status': content,
+            'media_ids': media_id,
+            'oauth_consumer_key': api_key,
+            'oauth_nonce': hashlib.md5(f"{datetime.now().isoformat()}tweet".encode()).hexdigest(),
+            'oauth_signature_method': 'HMAC-SHA1',
+            'oauth_timestamp': str(int(datetime.now().timestamp())),
+            'oauth_token': access_token,
+            'oauth_version': '1.0'
+        }
+        
+        # Create signature for tweet
+        tweet_params['oauth_signature'] = create_oauth_signature(
+            'POST', tweet_url, tweet_params, api_secret, access_token_secret
+        )
+        
+        # Separate OAuth and tweet parameters
+        oauth_tweet_params = {k: v for k, v in tweet_params.items() if k.startswith('oauth_')}
+        tweet_data = {'status': content, 'media_ids': media_id}
+        
+        # Create authorization header for tweet
+        auth_header = 'OAuth ' + ', '.join([f'{k}="{v}"' for k, v in sorted(oauth_tweet_params.items())])
+        
+        tweet_response = requests.post(
+            tweet_url,
+            headers={'Authorization': auth_header},
+            data=tweet_data,
+            timeout=30
+        )
+        
+        if tweet_response.status_code == 200:
+            tweet_data = tweet_response.json()
+            return True, tweet_data['id_str']
+        else:
+            return False, f"Tweet failed: {tweet_response.status_code} - {tweet_response.text}"
         
     except Exception as e:
         return False, str(e)
+
+def store_data_in_snowflake(session_id, action, data):
+    """Store data in Snowflake using native SiS connection"""
+    try:
+        # In Snowflake SiS, we can use st.connection to access Snowflake
+        conn = st.connection("snowflake")
+        
+        if action == "image_upload":
+            query = """
+            INSERT INTO TWEETERBOT_ANALYTICS (
+                session_id, action_type, timestamp, image_name, image_size
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?)
+            """
+            conn.query(query, params=[session_id, action, data.get('name', ''), data.get('size', 0)])
+            
+        elif action == "ai_generation":
+            query = """
+            INSERT INTO TWEETERBOT_ANALYTICS (
+                session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
+            """
+            conn.query(query, params=[
+                session_id, action, data.get('provider', ''), 
+                data.get('text', ''), data.get('processing_time', 0)
+            ])
+            
+        elif action == "tweet_post":
+            query = """
+            INSERT INTO TWEETERBOT_ANALYTICS (
+                session_id, action_type, timestamp, tweet_id, tweet_text, success
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
+            """
+            conn.query(query, params=[
+                session_id, action, data.get('tweet_id', ''), 
+                data.get('text', ''), data.get('success', False)
+            ])
+            
+        return True
+    except Exception as e:
+        st.warning(f"Could not store data in Snowflake: {str(e)}")
+        return False
 
 # Show content based on selected page
 if page == "🐦 Tweet Generator":
@@ -392,54 +514,24 @@ if page == "🐦 Tweet Generator":
         if uploaded_file is not None:
             # Display uploaded image
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image", width='stretch')
+            st.image(image, caption="Uploaded Image")
             
             # Store image in session state
             st.session_state.uploaded_image = image
             
-            # Store image in Snowflake if connected
-            if st.session_state.snowflake_connected and st.session_state.snowflake_session_id:
-                try:
-                    # Convert image to bytes
-                    img_byte_arr = io.BytesIO()
-                    image.save(img_byte_arr, format='JPEG')
-                    img_bytes = img_byte_arr.getvalue()
-                    
-                    # Store in Snowflake
-                    image_id = snowflake_manager.store_uploaded_image(
-                        st.session_state.snowflake_session_id,
-                        img_bytes,
-                        uploaded_file.name,
-                        image.format or 'JPEG',
-                        image.width,
-                        image.height
-                    )
-                    
-                    if image_id:
-                        st.session_state.current_image_id = image_id
-                        # Log analytics event
-                        snowflake_manager.log_analytics_event(
-                            st.session_state.snowflake_session_id,
-                            'image_upload',
-                            success=True
-                        )
-                        st.success("📊 Image stored in database")
-                        
-                except Exception as e:
-                    st.warning(f"Could not store image in database: {str(e)}")
-                    snowflake_manager.log_analytics_event(
-                        st.session_state.snowflake_session_id,
-                        'image_upload',
-                        success=False,
-                        error_type=str(e)
-                    )
+            # Store image data in Snowflake
+            store_data_in_snowflake(
+                st.session_state.session_id,
+                "image_upload",
+                {"name": uploaded_file.name, "size": len(uploaded_file.getvalue())}
+            )
             
             # Generate description button
             if st.button("🤖 Generate Tweet", type="primary"):
                 with st.spinner("Generating tweet content..."):
                     start_time = time.time()
                     description = ""
-                    ai_provider_key = ai_provider.split(" ")[0].lower()  # Extract provider name
+                    ai_provider_key = ai_provider.split(" ")[0].lower()
                     
                     # Generate description based on selected provider
                     if ai_provider == "Perplexity AI (Recommended)":
@@ -459,48 +551,19 @@ if page == "🐦 Tweet Generator":
                             st.info("💡 You can get an API key from https://platform.openai.com/api-keys")
                             description = ""
                     
-                    processing_time = int((time.time() - start_time) * 1000)  # Convert to milliseconds
+                    processing_time = int((time.time() - start_time) * 1000)
                     
-                    # Store AI-generated content in Snowflake
-                    if description and st.session_state.snowflake_connected and hasattr(st.session_state, 'current_image_id'):
-                        try:
-                            # Estimate API cost (rough estimates)
-                            cost_estimates = {
-                                'perplexity': 0.002,
-                                'openai': 0.01,
-                                'hugging': 0.0
+                    # Store AI generation data
+                    if description:
+                        store_data_in_snowflake(
+                            st.session_state.session_id,
+                            "ai_generation",
+                            {
+                                "provider": ai_provider_key,
+                                "text": description,
+                                "processing_time": processing_time
                             }
-                            estimated_cost = cost_estimates.get(ai_provider_key, 0.0)
-                            
-                            content_id = snowflake_manager.store_ai_generated_content(
-                                st.session_state.current_image_id,
-                                ai_provider_key,
-                                description,
-                                processing_time,
-                                estimated_cost
-                            )
-                            
-                            if content_id:
-                                st.session_state.current_content_id = content_id
-                                # Log analytics event
-                                snowflake_manager.log_analytics_event(
-                                    st.session_state.snowflake_session_id,
-                                    'ai_generation',
-                                    ai_provider_key,
-                                    success=True,
-                                    processing_time_ms=processing_time
-                                )
-                                st.success(f"📊 AI content stored (took {processing_time}ms)")
-                        except Exception as e:
-                            st.warning(f"Could not store AI content: {str(e)}")
-                            snowflake_manager.log_analytics_event(
-                                st.session_state.snowflake_session_id,
-                                'ai_generation',
-                                ai_provider_key,
-                                success=False,
-                                error_type=str(e),
-                                processing_time_ms=processing_time
-                            )
+                        )
                     
                     st.session_state.tweet_content = description
 
@@ -538,47 +601,30 @@ if page == "🐦 Tweet Generator":
                 if st.button("🚀 Post Tweet", type="primary"):
                     if st.session_state.uploaded_image and st.session_state.tweet_content:
                         with st.spinner("Posting tweet..."):
-                            # Save image temporarily
-                            temp_image_path = "temp_image.jpg"
-                            st.session_state.uploaded_image.save(temp_image_path)
+                            # Convert image to bytes
+                            img_byte_arr = io.BytesIO()
+                            st.session_state.uploaded_image.save(img_byte_arr, format='JPEG')
+                            img_bytes = img_byte_arr.getvalue()
                             
-                            success, result = post_tweet(
+                            success, result = post_tweet_direct_api(
                                 st.session_state.tweet_content,
-                                temp_image_path,
+                                img_bytes,
                                 twitter_api_key,
                                 twitter_api_secret,
                                 twitter_access_token,
                                 twitter_access_token_secret
                             )
                             
-                            # Clean up temporary file
-                            if os.path.exists(temp_image_path):
-                                os.remove(temp_image_path)
-                            
-                            # Store tweet result in Snowflake
-                            if st.session_state.snowflake_connected and hasattr(st.session_state, 'current_content_id'):
-                                try:
-                                    tweet_record_id = snowflake_manager.store_posted_tweet(
-                                        st.session_state.current_content_id,
-                                        result if success else "",
-                                        st.session_state.tweet_content,
-                                        success,
-                                        result if not success else ""
-                                    )
-                                    
-                                    # Log analytics event
-                                    snowflake_manager.log_analytics_event(
-                                        st.session_state.snowflake_session_id,
-                                        'tweet_post',
-                                        success=success,
-                                        error_type=result if not success else ""
-                                    )
-                                    
-                                    if tweet_record_id:
-                                        st.success("📊 Tweet data stored in database")
-                                        
-                                except Exception as e:
-                                    st.warning(f"Could not store tweet data: {str(e)}")
+                            # Store tweet result
+                            store_data_in_snowflake(
+                                st.session_state.session_id,
+                                "tweet_post",
+                                {
+                                    "tweet_id": result if success else "",
+                                    "text": st.session_state.tweet_content,
+                                    "success": success
+                                }
+                            )
                             
                             if success:
                                 st.markdown(f"""
@@ -597,33 +643,83 @@ if page == "🐦 Tweet Generator":
                     else:
                         st.error("Please upload an image and generate tweet content first")
             else:
-                st.error("❌ Twitter API not configured. Please add your Twitter API credentials to environment variables or Streamlit secrets.")
+                st.error("❌ Twitter API not configured. Please add your Twitter API credentials to Streamlit secrets.")
                 st.info("💡 Check the sidebar for configuration instructions")
         else:
             st.info("👆 Upload an image and click 'Generate Tweet' to see the preview here")
 
 elif page == "📊 Analytics Dashboard":
-    # Import and show analytics dashboard
+    st.subheader("📊 Usage Analytics")
+    
     try:
-        from analytics_dashboard import show_analytics_dashboard, show_data_export
+        # Use Snowflake connection to fetch analytics
+        conn = st.connection("snowflake")
         
-        # Main analytics content
-        show_analytics_dashboard()
+        # Daily usage stats
+        daily_stats = conn.query("""
+            SELECT 
+                DATE(timestamp) as date,
+                COUNT(DISTINCT session_id) as unique_sessions,
+                COUNT(CASE WHEN action_type = 'image_upload' THEN 1 END) as image_uploads,
+                COUNT(CASE WHEN action_type = 'ai_generation' THEN 1 END) as ai_generations,
+                COUNT(CASE WHEN action_type = 'tweet_post' THEN 1 END) as tweets_posted
+            FROM TWEETERBOT_ANALYTICS 
+            WHERE timestamp >= DATEADD(day, -30, CURRENT_DATE())
+            GROUP BY DATE(timestamp)
+            ORDER BY date DESC
+        """)
         
-        # Data export section
-        st.divider()
-        show_data_export()
+        if not daily_stats.empty:
+            st.dataframe(daily_stats)
+            
+            # Simple charts using Streamlit's built-in charting
+            st.subheader("📈 Trends")
+            st.line_chart(daily_stats.set_index('DATE')[['UNIQUE_SESSIONS', 'IMAGE_UPLOADS', 'AI_GENERATIONS', 'TWEETS_POSTED']])
+        else:
+            st.info("No analytics data available yet. Start using the app to see insights!")
+            
+        # AI Provider Performance
+        st.subheader("🤖 AI Provider Usage")
+        provider_stats = conn.query("""
+            SELECT 
+                ai_provider,
+                COUNT(*) as total_generations,
+                AVG(processing_time_ms) as avg_processing_time
+            FROM TWEETERBOT_ANALYTICS 
+            WHERE action_type = 'ai_generation' AND ai_provider IS NOT NULL
+            GROUP BY ai_provider
+            ORDER BY total_generations DESC
+        """)
         
-    except ImportError:
-        st.error("❌ Analytics dashboard not available. Please ensure analytics_dashboard.py is in the project directory.")
+        if not provider_stats.empty:
+            st.dataframe(provider_stats)
+        
     except Exception as e:
-        st.error(f"❌ Error loading analytics dashboard: {str(e)}")
+        st.error(f"❌ Error loading analytics: {str(e)}")
+        st.info("💡 Make sure the TWEETERBOT_ANALYTICS table exists in your Snowflake database")
+        
+        with st.expander("📝 Create Analytics Table"):
+            st.code("""
+            CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
+                session_id VARCHAR(255),
+                action_type VARCHAR(100),
+                timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+                image_name VARCHAR(255),
+                image_size INT,
+                ai_provider VARCHAR(100),
+                generated_text VARCHAR(10000),
+                processing_time_ms INT,
+                tweet_id VARCHAR(255),
+                tweet_text VARCHAR(280),
+                success BOOLEAN
+            );
+            """, language="sql")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 2rem;">
-    <p>🐦 AI Tweet Generator - Powered by Streamlit & Snowflake</p>
-    <p><small>Upload images, generate tweets, and analyze your data!</small></p>
+    <p>🐦 AI Tweet Generator - Optimized for Snowflake SiS</p>
+    <p><small>Upload images, generate tweets, and analyze your data natively in Snowflake!</small></p>
 </div>
 """, unsafe_allow_html=True)
