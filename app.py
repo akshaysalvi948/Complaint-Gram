@@ -703,13 +703,7 @@ def store_data_in_snowflake(session_id, action, data):
         return True
         
     except Exception as e:
-        error_msg = str(e)
-        st.error(f"❌ Could not store data in Snowflake: {error_msg}")
-        st.info("💡 Troubleshooting steps:")
-        st.info("1. Check if you're running in Snowflake SiS environment")
-        st.info("2. Verify your Snowflake connection is properly configured")
-        st.info("3. Ensure you have the necessary permissions")
-        st.info("4. Try running the table creation SQL manually")
+        # Silently handle Snowflake errors - don't show to users
         return False
 
 # Show content based on selected page
