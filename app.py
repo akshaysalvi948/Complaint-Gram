@@ -514,7 +514,7 @@ if page == "🐦 Tweet Generator":
         if uploaded_file is not None:
             # Display uploaded image
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image", width='stretch')
+            st.image(image, caption="Uploaded Image")
             
             # Store image in session state
             st.session_state.uploaded_image = image
