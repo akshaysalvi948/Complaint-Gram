@@ -332,36 +332,112 @@ def generate_image_description_with_perplexity(image, api_key):
     return "FAILED_ALL_RETRIES: Failed to generate description after all retry attempts."
 
 def generate_image_description_with_huggingface(image, token=""):
-    """Generate image description using Hugging Face's free API"""
-    try:
-        # Convert image to base64
-        img_base64 = encode_image_to_base64(image)
-        
-        # Hugging Face API endpoint for image captioning
-        API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
-        
-        headers = {}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        
-        response = requests.post(
-            API_URL,
-            headers=headers,
-            data=base64.b64decode(img_base64),
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            if isinstance(result, list) and len(result) > 0:
-                return result[0].get('generated_text', 'No description generated')
-            else:
-                return result.get('generated_text', 'No description generated')
-        else:
-            return f"API Error: {response.status_code}"
+    """Generate image description using Hugging Face with retry logic"""
+    import time
+    
+    max_retries = 3
+    retry_delay = 3  # seconds
+    
+    # Show initial attempt
+    st.info("🔄 Attempting to connect to Hugging Face...")
+    
+    for attempt in range(max_retries):
+        try:
+            # Show retry attempt to user
+            if attempt > 0:
+                st.warning(f"🔄 Hugging Face retry attempt {attempt + 1} of {max_retries}...")
             
-    except Exception as e:
-        return f"Error generating description: {str(e)}"
+            # Convert image to base64
+            img_base64 = encode_image_to_base64(image)
+            
+            # Hugging Face API endpoint for image captioning
+            API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
+            
+            headers = {}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            
+            response = requests.post(
+                API_URL,
+                headers=headers,
+                data=base64.b64decode(img_base64),
+                timeout=45  # Increased timeout
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    caption = result[0].get('generated_text', 'No description generated')
+                    # Make it more tweet-like
+                    if len(caption) > 280:
+                        caption = caption[:277] + "..."
+                    st.success("✅ Hugging Face connection successful!")
+                    return caption
+                else:
+                    caption = result.get('generated_text', 'No description generated')
+                    if len(caption) > 280:
+                        caption = caption[:277] + "..."
+                    st.success("✅ Hugging Face connection successful!")
+                    return caption
+            else:
+                error_msg = f"HTTP Error: {response.status_code} - {response.text}"
+                if attempt < max_retries - 1:
+                    st.warning(f"⚠️ Hugging Face API attempt {attempt + 1} failed: {response.status_code}. Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return error_msg
+                    
+        except requests.exceptions.ConnectionError as e:
+            error_str = str(e)
+            if "Device or resource busy" in error_str or "Max retries exceeded" in error_str:
+                if attempt < max_retries - 1:
+                    st.warning(f"⚠️ Hugging Face network issue (attempt {attempt + 1}): Device or resource busy. Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    st.error("❌ Hugging Face is also unavailable due to network issues.")
+                    return f"NETWORK_ERROR: Hugging Face connection failed after {max_retries} attempts due to network issues."
+            else:
+                return f"Connection error: {error_str}"
+        except requests.exceptions.Timeout as e:
+            if attempt < max_retries - 1:
+                st.warning(f"⚠️ Hugging Face timeout (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                continue
+            else:
+                return f"TIMEOUT_ERROR: Hugging Face timeout after {max_retries} attempts: {str(e)}"
+        except Exception as e:
+            if attempt < max_retries - 1:
+                st.warning(f"⚠️ Hugging Face unexpected error (attempt {attempt + 1}): {str(e)}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                continue
+            else:
+                return f"UNEXPECTED_ERROR: {str(e)}"
+    
+    return "FAILED_ALL_RETRIES: Hugging Face failed after all retry attempts."
+
+def generate_fallback_description(image):
+    """Generate a basic fallback description when all AI services fail"""
+    import random
+    
+    # Get basic image info
+    width, height = image.size
+    format_name = image.format or "Unknown"
+    
+    # Fallback descriptions based on image characteristics
+    fallback_tweets = [
+        f"📸 Just captured this {format_name} image ({width}x{height}) - sometimes the best moments are unplanned! #photography #moment",
+        f"🖼️ A {format_name} image worth sharing - {width}x{height} pixels of pure content! #image #share",
+        f"📷 This {format_name} photo ({width}x{height}) caught my attention today. What do you think? #photo #thoughts",
+        f"✨ Sharing this {format_name} image - {width}x{height} pixels of something interesting! #share #content",
+        f"🎨 Found this {format_name} image ({width}x{height}) and had to share it! #art #discovery",
+        f"📱 Just took this {format_name} shot ({width}x{height}) - sometimes simple moments are the best! #moment #simple",
+        f"🖼️ This {format_name} image ({width}x{height}) is worth a thousand words... or at least a tweet! #image #words",
+        f"📸 Sharing this {format_name} photo ({width}x{height}) - because some things are just too good not to share! #share #good"
+    ]
+    
+    return random.choice(fallback_tweets)
 
 def generate_image_description_with_openai(image, api_key):
     """Generate image description using OpenAI API via direct HTTP requests"""
@@ -672,7 +748,26 @@ if page == "🐦 Tweet Generator":
                                 description.startswith("Failed to generate description")):
                                 st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
                                 description = generate_image_description_with_huggingface(image, hf_token)
-                                if not description.startswith("Error"):
+                                
+                                # If Hugging Face also fails, try OpenAI as second fallback
+                                if (description.startswith("NETWORK_ERROR") or 
+                                    description.startswith("TIMEOUT_ERROR") or 
+                                    description.startswith("FAILED_ALL_RETRIES") or
+                                    description.startswith("Error")):
+                                    st.warning("⚠️ Hugging Face also failed. Trying OpenAI as second fallback...")
+                                    if openai_key:
+                                        description = generate_image_description_with_openai(image, openai_key)
+                                        if not description.startswith("Error"):
+                                            st.success("✅ Successfully generated description using OpenAI!")
+                                        else:
+                                            st.warning("⚠️ All AI services failed. Using fallback content...")
+                                            description = generate_fallback_description(image)
+                                            st.info("💡 Generated basic description using image metadata")
+                                    else:
+                                        st.warning("⚠️ OpenAI not configured. Using fallback content...")
+                                        description = generate_fallback_description(image)
+                                        st.info("💡 Generated basic description using image metadata")
+                                else:
                                     st.success("✅ Successfully generated description using Hugging Face!")
                         else:
                             st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
@@ -699,19 +794,41 @@ if page == "🐦 Tweet Generator":
                         st.error(f"❌ {description}")
                         st.info("💡 Try switching to a different AI provider in the sidebar")
                         
-                        # Add manual fallback option for Perplexity
-                        if ai_provider == "Perplexity AI (Recommended)":
-                            st.info("🔄 You can also try Hugging Face as a fallback:")
-                            if st.button("🔄 Try Hugging Face Instead", type="secondary"):
+                        # Add manual fallback options
+                        st.info("🔄 You can try alternative options:")
+                        col_fallback1, col_fallback2, col_fallback3 = st.columns(3)
+                        
+                        with col_fallback1:
+                            if st.button("🔄 Try Hugging Face", type="secondary"):
                                 with st.spinner("Trying Hugging Face..."):
                                     fallback_description = generate_image_description_with_huggingface(image, hf_token)
-                                    if not fallback_description.startswith("Error"):
+                                    if not fallback_description.startswith("Error") and not fallback_description.startswith("NETWORK_ERROR"):
                                         st.success("✅ Successfully generated description using Hugging Face!")
                                         description = fallback_description
                                         st.session_state.tweet_content = description
                                         st.rerun()
                                     else:
                                         st.error(f"❌ Hugging Face also failed: {fallback_description}")
+                        
+                        with col_fallback2:
+                            if openai_key and st.button("🔄 Try OpenAI", type="secondary"):
+                                with st.spinner("Trying OpenAI..."):
+                                    fallback_description = generate_image_description_with_openai(image, openai_key)
+                                    if not fallback_description.startswith("Error"):
+                                        st.success("✅ Successfully generated description using OpenAI!")
+                                        description = fallback_description
+                                        st.session_state.tweet_content = description
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ OpenAI also failed: {fallback_description}")
+                        
+                        with col_fallback3:
+                            if st.button("📝 Use Fallback Content", type="secondary"):
+                                with st.spinner("Generating fallback content..."):
+                                    description = generate_fallback_description(image)
+                                    st.success("✅ Generated fallback description using image metadata!")
+                                    st.session_state.tweet_content = description
+                                    st.rerun()
                     else:
                         st.success("✅ Tweet generated successfully!")
                     
