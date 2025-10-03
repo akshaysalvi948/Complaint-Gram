@@ -237,10 +237,17 @@ def generate_image_description_with_perplexity(image, api_key):
     import time
     
     max_retries = 3
-    retry_delay = 2  # seconds
+    retry_delay = 3  # seconds - increased delay
+    
+    # Show initial attempt
+    st.info("🔄 Attempting to connect to Perplexity AI...")
     
     for attempt in range(max_retries):
         try:
+            # Show retry attempt to user
+            if attempt > 0:
+                st.warning(f"🔄 Retry attempt {attempt + 1} of {max_retries}...")
+            
             # Convert image to base64
             img_base64 = encode_image_to_base64(image)
             image_url = f"data:image/jpeg;base64,{img_base64}"
@@ -279,47 +286,50 @@ def generate_image_description_with_perplexity(image, api_key):
                 "https://api.perplexity.ai/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=30
+                timeout=45  # Increased timeout
             )
 
             if response.status_code == 200:
                 result = response.json()
+                st.success("✅ Perplexity AI connection successful!")
                 return result['choices'][0]['message']['content'].strip()
             else:
-                error_msg = f"Error: {response.status_code} - {response.text}"
+                error_msg = f"HTTP Error: {response.status_code} - {response.text}"
                 if attempt < max_retries - 1:
-                    st.warning(f"Perplexity API attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
+                    st.warning(f"⚠️ Perplexity API attempt {attempt + 1} failed: {response.status_code}. Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                     continue
                 else:
                     return error_msg
 
         except requests.exceptions.ConnectionError as e:
-            if "Device or resource busy" in str(e) or "Max retries exceeded" in str(e):
+            error_str = str(e)
+            if "Device or resource busy" in error_str or "Max retries exceeded" in error_str:
                 if attempt < max_retries - 1:
-                    st.warning(f"Network connection issue (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                    st.warning(f"⚠️ Network connection issue (attempt {attempt + 1}): Device or resource busy. Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                     continue
                 else:
-                    return f"Network connection failed after {max_retries} attempts. Please try again later or switch to a different AI provider."
+                    st.error("❌ Perplexity AI is currently unavailable due to network issues.")
+                    return f"NETWORK_ERROR: Perplexity AI connection failed after {max_retries} attempts due to network issues. Please try Hugging Face instead."
             else:
-                return f"Connection error: {str(e)}"
+                return f"Connection error: {error_str}"
         except requests.exceptions.Timeout as e:
             if attempt < max_retries - 1:
-                st.warning(f"Request timeout (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                st.warning(f"⚠️ Request timeout (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
                 continue
             else:
-                return f"Request timeout after {max_retries} attempts: {str(e)}"
+                return f"TIMEOUT_ERROR: Request timeout after {max_retries} attempts: {str(e)}"
         except Exception as e:
             if attempt < max_retries - 1:
-                st.warning(f"Unexpected error (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                st.warning(f"⚠️ Unexpected error (attempt {attempt + 1}): {str(e)}. Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
                 continue
             else:
-                return f"Error generating description with Perplexity AI: {str(e)}"
+                return f"UNEXPECTED_ERROR: {str(e)}"
     
-    return "Failed to generate description after all retry attempts."
+    return "FAILED_ALL_RETRIES: Failed to generate description after all retry attempts."
 
 def generate_image_description_with_huggingface(image, token=""):
     """Generate image description using Hugging Face's free API"""
@@ -655,7 +665,11 @@ if page == "🐦 Tweet Generator":
                             description = generate_image_description_with_perplexity(image, perplexity_key)
                             
                             # If Perplexity fails with network issues, try Hugging Face as fallback
-                            if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
+                            if (description.startswith("NETWORK_ERROR") or 
+                                description.startswith("TIMEOUT_ERROR") or 
+                                description.startswith("FAILED_ALL_RETRIES") or
+                                description.startswith("Network connection failed") or 
+                                description.startswith("Failed to generate description")):
                                 st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
                                 description = generate_image_description_with_huggingface(image, hf_token)
                                 if not description.startswith("Error"):
@@ -677,7 +691,11 @@ if page == "🐦 Tweet Generator":
                     processing_time = int((time.time() - start_time) * 1000)
                     
                     # Check if description generation was successful
-                    if description.startswith("Error") or description.startswith("Failed"):
+                    if (description.startswith("Error") or 
+                        description.startswith("Failed") or 
+                        description.startswith("NETWORK_ERROR") or 
+                        description.startswith("TIMEOUT_ERROR") or 
+                        description.startswith("UNEXPECTED_ERROR")):
                         st.error(f"❌ {description}")
                         st.info("💡 Try switching to a different AI provider in the sidebar")
                         
@@ -698,7 +716,12 @@ if page == "🐦 Tweet Generator":
                         st.success("✅ Tweet generated successfully!")
                     
                     # Store AI generation data
-                    if description and not description.startswith("Error") and not description.startswith("Failed"):
+                    if (description and 
+                        not description.startswith("Error") and 
+                        not description.startswith("Failed") and
+                        not description.startswith("NETWORK_ERROR") and
+                        not description.startswith("TIMEOUT_ERROR") and
+                        not description.startswith("UNEXPECTED_ERROR")):
                         store_data_in_snowflake(
                             st.session_state.session_id,
                             "ai_generation",
