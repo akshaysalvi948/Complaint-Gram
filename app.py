@@ -205,11 +205,59 @@ with st.sidebar:
         else:
             st.success("✅ OpenAI API configured")
     
+    # Debug Mode
+    st.subheader("🔧 Debug")
+    debug_mode = st.checkbox("Enable Debug Mode", help="Show detailed error information and debug messages")
+    st.session_state.debug_mode = debug_mode
+    
     # Snowflake Database Status
     st.subheader("🗄️ Database")
-    # In Snowflake SiS, we're already connected to Snowflake
-    st.success("✅ Snowflake connected (Native SiS)")
-    st.info("💡 Using Snowflake's native connection")
+    # Test Snowflake connection
+    try:
+        conn = st.connection("snowflake")
+        # Test basic connection
+        test_result = conn.query("SELECT 1 as test_connection")
+        if not test_result.empty:
+            st.success("✅ Snowflake connected (Native SiS)")
+            st.info("💡 Using Snowflake's native connection")
+            
+            # Test if analytics table exists
+            try:
+                table_test = conn.query("SELECT 1 FROM TWEETERBOT_ANALYTICS LIMIT 1")
+                st.success("✅ TWEETERBOT_ANALYTICS table accessible")
+            except Exception as table_error:
+                if "does not exist" in str(table_error).lower():
+                    st.warning("⚠️ TWEETERBOT_ANALYTICS table not found")
+                    st.info("💡 Click the button below to create the table")
+                    if st.button("🔧 Create Analytics Table"):
+                        create_table_sql = """
+                        CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
+                            session_id VARCHAR(255),
+                            action_type VARCHAR(100),
+                            timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+                            image_name VARCHAR(255),
+                            image_size INT,
+                            ai_provider VARCHAR(100),
+                            generated_text VARCHAR(10000),
+                            processing_time_ms INT,
+                            tweet_id VARCHAR(255),
+                            tweet_text VARCHAR(280),
+                            success BOOLEAN
+                        );
+                        """
+                        try:
+                            conn.query(create_table_sql)
+                            st.success("✅ Table created successfully!")
+                            st.rerun()
+                        except Exception as create_error:
+                            st.error(f"❌ Failed to create table: {str(create_error)}")
+                else:
+                    st.error(f"❌ Table access error: {str(table_error)}")
+        else:
+            st.error("❌ Snowflake connection test failed")
+    except Exception as conn_error:
+        st.error(f"❌ Snowflake connection error: {str(conn_error)}")
+        st.info("💡 Make sure you're running in Snowflake SiS environment")
 
 # Initialize session state
 if 'tweet_content' not in st.session_state:
@@ -486,7 +534,7 @@ def post_tweet_direct_api(content, image_bytes, api_key, api_secret, access_toke
         return False, str(e)
 
 def store_data_in_snowflake(session_id, action, data):
-    """Store data in Snowflake using native SiS connection"""
+    """Store data in Snowflake using native SiS connection with detailed error handling"""
     try:
         # In Snowflake SiS, we can use st.connection to access Snowflake
         conn = st.connection("snowflake")
@@ -495,7 +543,8 @@ def store_data_in_snowflake(session_id, action, data):
         try:
             conn.query("SELECT 1 FROM TWEETERBOT_ANALYTICS LIMIT 1")
         except Exception as table_error:
-            if "does not exist" in str(table_error).lower():
+            error_msg = str(table_error)
+            if "does not exist" in error_msg.lower():
                 st.error("❌ TWEETERBOT_ANALYTICS table does not exist!")
                 st.info("💡 Please run this SQL in your Snowflake worksheet:")
                 st.code("""
@@ -515,15 +564,17 @@ CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
                 """, language="sql")
                 return False
             else:
-                raise table_error
+                st.error(f"❌ Table access error: {error_msg}")
+                return False
         
+        # Prepare the query based on action
         if action == "image_upload":
             query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, image_name, image_size
             ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?)
             """
-            conn.query(query, params=[session_id, action, data.get('name', ''), data.get('size', 0)])
+            params = [session_id, action, data.get('name', ''), data.get('size', 0)]
             
         elif action == "ai_generation":
             query = """
@@ -531,10 +582,10 @@ CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
             ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
             """
-            conn.query(query, params=[
+            params = [
                 session_id, action, data.get('provider', ''), 
                 data.get('text', ''), data.get('processing_time', 0)
-            ])
+            ]
             
         elif action == "tweet_post":
             query = """
@@ -542,14 +593,33 @@ CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, tweet_id, tweet_text, success
             ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
             """
-            conn.query(query, params=[
+            params = [
                 session_id, action, data.get('tweet_id', ''), 
                 data.get('text', ''), data.get('success', False)
-            ])
+            ]
+        else:
+            st.warning(f"Unknown action type: {action}")
+            return False
+        
+        # Execute the query with detailed error handling
+        try:
+            conn.query(query, params=params)
+            st.success(f"✅ Data stored successfully for {action}")
+            return True
+        except Exception as query_error:
+            error_msg = str(query_error)
+            st.error(f"❌ Query execution failed: {error_msg}")
+            st.info(f"Query: {query}")
+            st.info(f"Params: {params}")
+            return False
             
-        return True
     except Exception as e:
-        st.warning(f"Could not store data in Snowflake: {str(e)}")
+        error_msg = str(e)
+        st.error(f"❌ Snowflake connection error: {error_msg}")
+        st.info("💡 Troubleshooting steps:")
+        st.info("1. Check if you're running in Snowflake SiS environment")
+        st.info("2. Verify your Snowflake connection is properly configured")
+        st.info("3. Ensure you have the necessary permissions")
         return False
 
 # Show content based on selected page
@@ -574,59 +644,62 @@ if page == "🐦 Tweet Generator":
             # Store image in session state
             st.session_state.uploaded_image = image
             
-            # Store image data in Snowflake
-            store_data_in_snowflake(
-                st.session_state.session_id,
-                "image_upload",
-                {"name": uploaded_file.name, "size": len(uploaded_file.getvalue())}
-            )
-            
-            # Generate description button
-            if st.button("🤖 Generate Tweet", type="primary"):
-                with st.spinner("Generating tweet content..."):
-                    start_time = time.time()
-                    description = ""
-                    ai_provider_key = ai_provider.split(" ")[0].lower()
-                    
-                    # Generate description based on selected provider
-                    if ai_provider == "Perplexity AI (Recommended)":
-                        if perplexity_key:
-                            description = generate_image_description_with_perplexity(image, perplexity_key)
-                            # If Perplexity fails with network issues, try Hugging Face as fallback
-                            if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
-                                st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
-                                description = generate_image_description_with_huggingface(image, hf_token)
-                                if not description.startswith("Error"):
-                                    st.success("✅ Successfully generated description using Hugging Face!")
-                        else:
-                            st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
-                            st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
-                            description = ""
-                    elif ai_provider == "Hugging Face (Free)":
-                        description = generate_image_description_with_huggingface(image, hf_token)
-                    elif ai_provider == "OpenAI (Paid)":
-                        if openai_key:
-                            description = generate_image_description_with_openai(image, openai_key)
-                        else:
-                            st.error("❌ Please enter your OpenAI API key in the sidebar to use this feature.")
-                            st.info("💡 You can get an API key from https://platform.openai.com/api-keys")
-                            description = ""
-                    
-                    processing_time = int((time.time() - start_time) * 1000)
-                    
-                    # Store AI generation data
-                    if description:
-                        store_data_in_snowflake(
-                            st.session_state.session_id,
-                            "ai_generation",
-                            {
-                                "provider": ai_provider_key,
-                                "text": description,
-                                "processing_time": processing_time
-                            }
-                        )
-                    
-                    st.session_state.tweet_content = description
+        # Store image data in Snowflake
+        if st.session_state.get('debug_mode', False):
+            st.info(f"🔍 Debug: Storing image data - Session: {st.session_state.session_id}, Name: {uploaded_file.name}, Size: {len(uploaded_file.getvalue())}")
+        
+        store_data_in_snowflake(
+            st.session_state.session_id,
+            "image_upload",
+            {"name": uploaded_file.name, "size": len(uploaded_file.getvalue())}
+        )
+        
+        # Generate description button
+        if st.button("🤖 Generate Tweet", type="primary"):
+            with st.spinner("Generating tweet content..."):
+                start_time = time.time()
+                description = ""
+                ai_provider_key = ai_provider.split(" ")[0].lower()
+                
+                # Generate description based on selected provider
+                if ai_provider == "Perplexity AI (Recommended)":
+                    if perplexity_key:
+                        description = generate_image_description_with_perplexity(image, perplexity_key)
+                        # If Perplexity fails with network issues, try Hugging Face as fallback
+                        if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
+                            st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
+                            description = generate_image_description_with_huggingface(image, hf_token)
+                            if not description.startswith("Error"):
+                                st.success("✅ Successfully generated description using Hugging Face!")
+                    else:
+                        st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
+                        st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
+                        description = ""
+                elif ai_provider == "Hugging Face (Free)":
+                    description = generate_image_description_with_huggingface(image, hf_token)
+                elif ai_provider == "OpenAI (Paid)":
+                    if openai_key:
+                        description = generate_image_description_with_openai(image, openai_key)
+                    else:
+                        st.error("❌ Please enter your OpenAI API key in the sidebar to use this feature.")
+                        st.info("💡 You can get an API key from https://platform.openai.com/api-keys")
+                        description = ""
+                
+                processing_time = int((time.time() - start_time) * 1000)
+                
+                # Store AI generation data
+                if description:
+                    store_data_in_snowflake(
+                        st.session_state.session_id,
+                        "ai_generation",
+                        {
+                            "provider": ai_provider_key,
+                            "text": description,
+                            "processing_time": processing_time
+                        }
+                    )
+                
+                st.session_state.tweet_content = description
 
     with col2:
         st.subheader("✍️ Tweet Preview")
