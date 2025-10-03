@@ -245,6 +245,64 @@ def encode_image_to_base64(image):
     img_str = base64.b64encode(buffer.getvalue()).decode()
     return img_str
 
+def enhance_caption_for_twitter(caption):
+    """Enhance a basic caption to be more tweet-worthy and engaging"""
+    if not caption or caption == "No description generated":
+        return "✨ Captured a moment worth sharing! #photography #share"
+    
+    # Remove common generic phrases
+    caption = caption.replace("a photo of", "").replace("an image of", "").replace("a picture of", "")
+    caption = caption.replace("showing", "").replace("featuring", "").strip()
+    
+    # Capitalize first letter
+    caption = caption[0].upper() + caption[1:] if caption else caption
+    
+    # Add engaging elements based on content
+    if any(word in caption.lower() for word in ["person", "people", "man", "woman", "child", "baby"]):
+        if "smiling" in caption.lower() or "happy" in caption.lower():
+            caption = f"😊 {caption}"
+        elif "serious" in caption.lower() or "focused" in caption.lower():
+            caption = f"🎯 {caption}"
+        else:
+            caption = f"👤 {caption}"
+    elif any(word in caption.lower() for word in ["food", "meal", "dish", "cooking", "restaurant"]):
+        caption = f"🍽️ {caption}"
+    elif any(word in caption.lower() for word in ["nature", "landscape", "mountain", "forest", "beach", "ocean"]):
+        caption = f"🌿 {caption}"
+    elif any(word in caption.lower() for word in ["city", "urban", "building", "street", "architecture"]):
+        caption = f"🏙️ {caption}"
+    elif any(word in caption.lower() for word in ["animal", "dog", "cat", "pet", "wildlife"]):
+        caption = f"🐾 {caption}"
+    elif any(word in caption.lower() for word in ["art", "painting", "drawing", "creative", "design"]):
+        caption = f"🎨 {caption}"
+    elif any(word in caption.lower() for word in ["technology", "computer", "phone", "gadget", "tech"]):
+        caption = f"💻 {caption}"
+    else:
+        caption = f"✨ {caption}"
+    
+    # Add relevant hashtags based on content
+    hashtags = []
+    if any(word in caption.lower() for word in ["beautiful", "amazing", "stunning", "gorgeous"]):
+        hashtags.append("#beautiful")
+    if any(word in caption.lower() for word in ["sunset", "sunrise", "golden", "light"]):
+        hashtags.append("#goldenhour")
+    if any(word in caption.lower() for word in ["food", "delicious", "tasty", "cooking"]):
+        hashtags.append("#foodie")
+    if any(word in caption.lower() for word in ["travel", "adventure", "journey", "explore"]):
+        hashtags.append("#travel")
+    if any(word in caption.lower() for word in ["art", "creative", "design", "artistic"]):
+        hashtags.append("#art")
+    
+    # Add a maximum of 2 hashtags to keep it clean
+    if len(hashtags) > 0:
+        caption += " " + " ".join(hashtags[:2])
+    
+    # Ensure it's under 280 characters
+    if len(caption) > 280:
+        caption = caption[:277] + "..."
+    
+    return caption
+
 def generate_image_description_with_perplexity(image, api_key):
     """Generate image description using Perplexity AI with retry logic and fallback"""
     import time
@@ -269,14 +327,14 @@ def generate_image_description_with_perplexity(image, api_key):
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
+                        "content": "You are an expert social media content creator and image analyst. Your job is to create compelling, viral-worthy tweets that analyze images in detail and engage audiences. \n\nGuidelines:\n- Analyze the image thoroughly: identify objects, people, scenes, colors, lighting, mood, composition\n- Look for interesting details, emotions, stories, or unique elements\n- Write in a conversational, engaging tone that encourages likes and retweets\n- Use 2-3 relevant hashtags maximum\n- Keep under 280 characters\n- Avoid generic phrases like 'sharing this image' or 'something interesting'\n- Focus on what makes this image special or noteworthy\n- Make it shareable and thought-provoking"
                     },
                     {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
+                                "text": "Analyze this image in detail and create a compelling tweet that would perform well on social media. Describe what you actually see, the mood, the story, or what makes it interesting. Make it engaging and shareable."
                             },
                             {
                                 "type": "image_url",
@@ -285,8 +343,8 @@ def generate_image_description_with_perplexity(image, api_key):
                         ]
                     }
                 ],
-                "max_tokens": 150,
-                "temperature": 0.7
+                "max_tokens": 200,
+                "temperature": 0.8
             }
 
             response = requests.post(
@@ -362,14 +420,13 @@ def generate_image_description_with_huggingface(image, token=""):
                 result = response.json()
                 if isinstance(result, list) and len(result) > 0:
                     caption = result[0].get('generated_text', 'No description generated')
-                    # Make it more tweet-like
-                    if len(caption) > 280:
-                        caption = caption[:277] + "..."
+                    # Enhance the caption to be more tweet-worthy
+                    caption = enhance_caption_for_twitter(caption)
                     return caption
                 else:
                     caption = result.get('generated_text', 'No description generated')
-                    if len(caption) > 280:
-                        caption = caption[:277] + "..."
+                    # Enhance the caption to be more tweet-worthy
+                    caption = enhance_caption_for_twitter(caption)
                     return caption
             else:
                 error_msg = f"HTTP Error: {response.status_code} - {response.text}"
@@ -412,16 +469,16 @@ def generate_fallback_description(image):
     width, height = image.size
     format_name = image.format or "Unknown"
     
-    # Fallback descriptions based on image characteristics
+    # Fallback descriptions based on image characteristics - more engaging
     fallback_tweets = [
-        f"📸 Just captured this {format_name} image ({width}x{height}) - sometimes the best moments are unplanned! #photography #moment",
-        f"🖼️ A {format_name} image worth sharing - {width}x{height} pixels of pure content! #image #share",
-        f"📷 This {format_name} photo ({width}x{height}) caught my attention today. What do you think? #photo #thoughts",
-        f"✨ Sharing this {format_name} image - {width}x{height} pixels of something interesting! #share #content",
-        f"🎨 Found this {format_name} image ({width}x{height}) and had to share it! #art #discovery",
-        f"📱 Just took this {format_name} shot ({width}x{height}) - sometimes simple moments are the best! #moment #simple",
-        f"🖼️ This {format_name} image ({width}x{height}) is worth a thousand words... or at least a tweet! #image #words",
-        f"📸 Sharing this {format_name} photo ({width}x{height}) - because some things are just too good not to share! #share #good"
+        f"📸 Captured this {format_name} moment ({width}x{height}) - sometimes the best shots happen when you least expect them! #photography #moment #captured",
+        f"🖼️ This {format_name} image ({width}x{height}) stopped me in my tracks today. What's your first impression? #image #thoughts #share",
+        f"📷 Found this {format_name} photo ({width}x{height}) and couldn't resist sharing it! Sometimes beauty is in the details. #photo #beauty #details",
+        f"✨ Stumbled upon this {format_name} image ({width}x{height}) - there's something special about it that caught my eye! #discovery #special #share",
+        f"🎨 This {format_name} image ({width}x{height}) has that certain something... what do you see? #art #perspective #discussion",
+        f"📱 Just captured this {format_name} shot ({width}x{height}) - sometimes the simplest moments tell the best stories! #moment #story #simple",
+        f"🖼️ This {format_name} image ({width}x{height}) speaks volumes without saying a word. What's it telling you? #image #story #perspective",
+        f"📸 Sharing this {format_name} photo ({width}x{height}) because some moments are too good to keep to yourself! #share #moment #good"
     ]
     
     return random.choice(fallback_tweets)
@@ -441,9 +498,13 @@ def generate_image_description_with_openai(image, api_key):
             "model": "gpt-4-vision-preview",
             "messages": [
                 {
+                    "role": "system",
+                    "content": "You are an expert social media content creator specializing in viral Twitter/X content. Your job is to analyze images and create compelling, engaging tweets that perform well on social media.\n\nGuidelines:\n- Analyze the image in detail: identify objects, people, scenes, colors, lighting, mood, composition\n- Look for interesting details, emotions, stories, or unique elements that make the image special\n- Write in a conversational, engaging tone that encourages likes, retweets, and comments\n- Use 2-3 relevant hashtags maximum\n- Keep under 280 characters\n- Avoid generic phrases like 'sharing this image' or 'something interesting'\n- Focus on what makes this image noteworthy, beautiful, or interesting\n- Make it shareable and thought-provoking\n- Use emojis strategically to enhance engagement"
+                },
+                {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Write a brief, engaging tweet about this image. Keep it under 280 characters and make it interesting for social media."},
+                        {"type": "text", "text": "Analyze this image thoroughly and create a compelling, viral-worthy tweet. Describe what you actually see, the mood, the story, or what makes it interesting. Make it engaging and shareable for social media."},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -453,7 +514,8 @@ def generate_image_description_with_openai(image, api_key):
                     ]
                 }
             ],
-            "max_tokens": 150
+            "max_tokens": 200,
+            "temperature": 0.8
         }
         
         response = requests.post(
