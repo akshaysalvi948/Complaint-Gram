@@ -8,8 +8,6 @@ import time
 import json
 import hashlib
 import hmac
-# Note: python-dotenv is not available in Snowflake SiS
-# Environment variables should be set in the Snowflake environment
 import urllib.parse
 from datetime import datetime
 import pandas as pd
@@ -110,8 +108,7 @@ twitter_api_secret = get_secret("twitter.api_secret")
 twitter_access_token = get_secret("twitter.access_token")
 twitter_access_token_secret = get_secret("twitter.access_token_secret")
 
-# Load Perplexity API key from .env file first, then fallback to secrets
-perplexity_key = os.getenv("PERPLEXITY_API_KEY") or get_secret("ai.perplexity_api_key")
+perplexity_key = get_secret("ai.perplexity_api_key")
 hf_token = get_secret("ai.huggingface_token")
 openai_key = get_secret("ai.openai_api_key")
 
@@ -167,13 +164,17 @@ with st.sidebar:
     if ai_provider == "Perplexity AI (Recommended)":
         st.info("💡 High-quality image descriptions with fast response times")
         if not perplexity_key:
-            st.error("❌ Perplexity API key not found")
-            st.info("💡 Please set PERPLEXITY_API_KEY as an environment variable in Snowflake")
-            st.code("PERPLEXITY_API_KEY=your_api_key_here", language="bash")
-            st.info("📝 Get your API key from https://www.perplexity.ai/settings/api")
-            st.info("🔧 In Snowflake SiS, set this in your app's environment variables")
+            st.warning("⚠️ Perplexity API key not configured")
+            user_perplexity_key = st.text_input(
+                "Enter Perplexity API Key", 
+                type="password",
+                help="Get your API key from https://www.perplexity.ai/settings/api"
+            )
+            if user_perplexity_key:
+                perplexity_key = user_perplexity_key
+                st.success("✅ Perplexity API key entered")
         else:
-            st.success("✅ Perplexity API configured (loaded from environment)")
+            st.success("✅ Perplexity API configured")
             
     elif ai_provider == "Hugging Face (Free)":
         st.info("💡 Free option using Salesforce BLIP model")
@@ -204,11 +205,6 @@ with st.sidebar:
         else:
             st.success("✅ OpenAI API configured")
     
-    # Debug Mode
-    st.subheader("🔧 Debug")
-    debug_mode = st.checkbox("Enable Debug Mode", help="Show detailed error information and debug messages")
-    st.session_state.debug_mode = debug_mode
-    
     # Snowflake Database Status
     st.subheader("🗄️ Database")
     # In Snowflake SiS, we're already connected to Snowflake
@@ -232,211 +228,89 @@ def encode_image_to_base64(image):
     return img_str
 
 def generate_image_description_with_perplexity(image, api_key):
-    """Generate image description using Perplexity AI with retry logic and fallback"""
-    import time
-    
-    max_retries = 3
-    retry_delay = 3  # seconds - increased delay
-    
-    # Show initial attempt
-    st.info("🔄 Attempting to connect to Perplexity AI...")
-    
-    for attempt in range(max_retries):
-        try:
-            # Show retry attempt to user
-            if attempt > 0:
-                st.warning(f"🔄 Retry attempt {attempt + 1} of {max_retries}...")
-            
-            # Convert image to base64
-            img_base64 = encode_image_to_base64(image)
-            image_url = f"data:image/jpeg;base64,{img_base64}"
+    """Generate image description using Perplexity AI via direct HTTP requests"""
+    try:
+        # Convert image to base64
+        img_base64 = encode_image_to_base64(image)
+        image_url = f"data:image/jpeg;base64,{img_base64}"
 
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
 
-            payload = {
-                "model": "sonar-pro",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_url}
-                            }
-                        ]
-                    }
-                ],
-                "max_tokens": 150,
-                "temperature": 0.7
-            }
+        payload = {
+            "model": "sonar-pro",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_url}
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": 150,
+            "temperature": 0.7
+        }
 
-            response = requests.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=45  # Increased timeout
-            )
+        response = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
 
-            if response.status_code == 200:
-                result = response.json()
-                st.success("✅ Perplexity AI connection successful!")
-                return result['choices'][0]['message']['content'].strip()
-            else:
-                error_msg = f"HTTP Error: {response.status_code} - {response.text}"
-                if attempt < max_retries - 1:
-                    st.warning(f"⚠️ Perplexity API attempt {attempt + 1} failed: {response.status_code}. Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    return error_msg
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content'].strip()
+        else:
+            return f"Error: {response.status_code} - {response.text}"
 
-        except requests.exceptions.ConnectionError as e:
-            error_str = str(e)
-            if "Device or resource busy" in error_str or "Max retries exceeded" in error_str:
-                if attempt < max_retries - 1:
-                    st.warning(f"⚠️ Network connection issue (attempt {attempt + 1}): Device or resource busy. Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    st.error("❌ Perplexity AI is currently unavailable due to network issues.")
-                    return f"NETWORK_ERROR: Perplexity AI connection failed after {max_retries} attempts due to network issues. Please try Hugging Face instead."
-            else:
-                return f"Connection error: {error_str}"
-        except requests.exceptions.Timeout as e:
-            if attempt < max_retries - 1:
-                st.warning(f"⚠️ Request timeout (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                continue
-            else:
-                return f"TIMEOUT_ERROR: Request timeout after {max_retries} attempts: {str(e)}"
-        except Exception as e:
-            if attempt < max_retries - 1:
-                st.warning(f"⚠️ Unexpected error (attempt {attempt + 1}): {str(e)}. Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                continue
-            else:
-                return f"UNEXPECTED_ERROR: {str(e)}"
-    
-    return "FAILED_ALL_RETRIES: Failed to generate description after all retry attempts."
+    except Exception as e:
+        return f"Error generating description with Perplexity AI: {str(e)}"
 
 def generate_image_description_with_huggingface(image, token=""):
-    """Generate image description using Hugging Face with retry logic"""
-    import time
-    
-    max_retries = 3
-    retry_delay = 3  # seconds
-    
-    # Show initial attempt
-    st.info("🔄 Attempting to connect to Hugging Face...")
-    
-    for attempt in range(max_retries):
-        try:
-            # Show retry attempt to user
-            if attempt > 0:
-                st.warning(f"🔄 Hugging Face retry attempt {attempt + 1} of {max_retries}...")
-            
-            # Convert image to base64
-            img_base64 = encode_image_to_base64(image)
-            
-            # Hugging Face API endpoint for image captioning
-            API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
-            
-            headers = {}
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            
-            response = requests.post(
-                API_URL,
-                headers=headers,
-                data=base64.b64decode(img_base64),
-                timeout=45  # Increased timeout
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                if isinstance(result, list) and len(result) > 0:
-                    caption = result[0].get('generated_text', 'No description generated')
-                    # Make it more tweet-like
-                    if len(caption) > 280:
-                        caption = caption[:277] + "..."
-                    st.success("✅ Hugging Face connection successful!")
-                    return caption
-                else:
-                    caption = result.get('generated_text', 'No description generated')
-                    if len(caption) > 280:
-                        caption = caption[:277] + "..."
-                    st.success("✅ Hugging Face connection successful!")
-                    return caption
+    """Generate image description using Hugging Face's free API"""
+    try:
+        # Convert image to base64
+        img_base64 = encode_image_to_base64(image)
+        
+        # Hugging Face API endpoint for image captioning
+        API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base"
+        
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            data=base64.b64decode(img_base64),
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                return result[0].get('generated_text', 'No description generated')
             else:
-                error_msg = f"HTTP Error: {response.status_code} - {response.text}"
-                if attempt < max_retries - 1:
-                    st.warning(f"⚠️ Hugging Face API attempt {attempt + 1} failed: {response.status_code}. Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    return error_msg
-                    
-        except requests.exceptions.ConnectionError as e:
-            error_str = str(e)
-            if "Device or resource busy" in error_str or "Max retries exceeded" in error_str:
-                if attempt < max_retries - 1:
-                    st.warning(f"⚠️ Hugging Face network issue (attempt {attempt + 1}): Device or resource busy. Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    st.error("❌ Hugging Face is also unavailable due to network issues.")
-                    return f"NETWORK_ERROR: Hugging Face connection failed after {max_retries} attempts due to network issues."
-            else:
-                return f"Connection error: {error_str}"
-        except requests.exceptions.Timeout as e:
-            if attempt < max_retries - 1:
-                st.warning(f"⚠️ Hugging Face timeout (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                continue
-            else:
-                return f"TIMEOUT_ERROR: Hugging Face timeout after {max_retries} attempts: {str(e)}"
-        except Exception as e:
-            if attempt < max_retries - 1:
-                st.warning(f"⚠️ Hugging Face unexpected error (attempt {attempt + 1}): {str(e)}. Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                continue
-            else:
-                return f"UNEXPECTED_ERROR: {str(e)}"
-    
-    return "FAILED_ALL_RETRIES: Hugging Face failed after all retry attempts."
-
-def generate_fallback_description(image):
-    """Generate a basic fallback description when all AI services fail"""
-    import random
-    
-    # Get basic image info
-    width, height = image.size
-    format_name = image.format or "Unknown"
-    
-    # Fallback descriptions based on image characteristics
-    fallback_tweets = [
-        f"📸 Just captured this {format_name} image ({width}x{height}) - sometimes the best moments are unplanned! #photography #moment",
-        f"🖼️ A {format_name} image worth sharing - {width}x{height} pixels of pure content! #image #share",
-        f"📷 This {format_name} photo ({width}x{height}) caught my attention today. What do you think? #photo #thoughts",
-        f"✨ Sharing this {format_name} image - {width}x{height} pixels of something interesting! #share #content",
-        f"🎨 Found this {format_name} image ({width}x{height}) and had to share it! #art #discovery",
-        f"📱 Just took this {format_name} shot ({width}x{height}) - sometimes simple moments are the best! #moment #simple",
-        f"🖼️ This {format_name} image ({width}x{height}) is worth a thousand words... or at least a tweet! #image #words",
-        f"📸 Sharing this {format_name} photo ({width}x{height}) - because some things are just too good not to share! #share #good"
-    ]
-    
-    return random.choice(fallback_tweets)
+                return result.get('generated_text', 'No description generated')
+        else:
+            return f"API Error: {response.status_code}"
+            
+    except Exception as e:
+        return f"Error generating description: {str(e)}"
 
 def generate_image_description_with_openai(image, api_key):
     """Generate image description using OpenAI API via direct HTTP requests"""
@@ -583,119 +457,44 @@ def post_tweet_direct_api(content, image_bytes, api_key, api_secret, access_toke
         return False, str(e)
 
 def store_data_in_snowflake(session_id, action, data):
-    """Store data in Snowflake using native SiS connection with table creation"""
+    """Store data in Snowflake using native SiS connection"""
     try:
         # In Snowflake SiS, we can use st.connection to access Snowflake
         conn = st.connection("snowflake")
         
-        # First, ensure the table exists
-        try:
-            # Try to query the table to see if it exists
-            conn.query("SELECT 1 FROM TWEETERBOT_ANALYTICS LIMIT 1")
-        except Exception as table_error:
-            if "does not exist" in str(table_error).lower():
-                st.info("🔧 Creating TWEETERBOT_ANALYTICS table...")
-                
-                # Create the table
-                create_table_sql = """
-                CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
-                    session_id VARCHAR(255),
-                    action_type VARCHAR(100),
-                    timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-                    image_name VARCHAR(255),
-                    image_size INT,
-                    ai_provider VARCHAR(100),
-                    generated_text VARCHAR(10000),
-                    processing_time_ms INT,
-                    tweet_id VARCHAR(255),
-                    tweet_text VARCHAR(280),
-                    success BOOLEAN
-                );
-                """
-                
-                try:
-                    conn.query(create_table_sql)
-                    st.success("✅ TWEETERBOT_ANALYTICS table created successfully!")
-                except Exception as create_error:
-                    st.error(f"❌ Failed to create table: {str(create_error)}")
-                    st.info("💡 Please run this SQL manually in your Snowflake worksheet:")
-                    st.code(create_table_sql, language="sql")
-                    return False
-            else:
-                st.error(f"❌ Table access error: {str(table_error)}")
-                return False
-        
-        # Now insert data using direct string formatting (Snowflake SiS compatible)
         if action == "image_upload":
-            # Escape single quotes in string values
-            session_id_escaped = session_id.replace("'", "''")
-            action_escaped = action.replace("'", "''")
-            name_escaped = data.get('name', '').replace("'", "''")
-            size = data.get('size', 0)
-            
-            query = f"""
+            query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, image_name, image_size
-            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{name_escaped}', {size})
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?)
             """
-            
-            if st.session_state.get('debug_mode', False):
-                st.info(f"🔍 Debug: Executing query: {query}")
-            
-            conn.query(query)
+            conn.query(query, params=[session_id, action, data.get('name', ''), data.get('size', 0)])
             
         elif action == "ai_generation":
-            # Escape single quotes in string values
-            session_id_escaped = session_id.replace("'", "''")
-            action_escaped = action.replace("'", "''")
-            provider_escaped = data.get('provider', '').replace("'", "''")
-            text_escaped = data.get('text', '').replace("'", "''")
-            processing_time = data.get('processing_time', 0)
-            
-            query = f"""
+            query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
-            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{provider_escaped}', '{text_escaped}', {processing_time})
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
             """
-            
-            if st.session_state.get('debug_mode', False):
-                st.info(f"🔍 Debug: Executing query: {query}")
-            
-            conn.query(query)
+            conn.query(query, params=[
+                session_id, action, data.get('provider', ''), 
+                data.get('text', ''), data.get('processing_time', 0)
+            ])
             
         elif action == "tweet_post":
-            # Escape single quotes in string values
-            session_id_escaped = session_id.replace("'", "''")
-            action_escaped = action.replace("'", "''")
-            tweet_id_escaped = data.get('tweet_id', '').replace("'", "''")
-            text_escaped = data.get('text', '').replace("'", "''")
-            success = data.get('success', False)
-            
-            query = f"""
+            query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, tweet_id, tweet_text, success
-            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{tweet_id_escaped}', '{text_escaped}', {str(success).upper()})
+            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
             """
+            conn.query(query, params=[
+                session_id, action, data.get('tweet_id', ''), 
+                data.get('text', ''), data.get('success', False)
+            ])
             
-            if st.session_state.get('debug_mode', False):
-                st.info(f"🔍 Debug: Executing query: {query}")
-            
-            conn.query(query)
-        else:
-            st.warning(f"Unknown action type: {action}")
-            return False
-            
-        st.success(f"✅ Data stored successfully for {action}")
         return True
-        
     except Exception as e:
-        error_msg = str(e)
-        st.error(f"❌ Could not store data in Snowflake: {error_msg}")
-        st.info("💡 Troubleshooting steps:")
-        st.info("1. Check if you're running in Snowflake SiS environment")
-        st.info("2. Verify your Snowflake connection is properly configured")
-        st.info("3. Ensure you have the necessary permissions")
-        st.info("4. Try running the table creation SQL manually")
+        st.warning(f"Could not store data in Snowflake: {str(e)}")
         return False
 
 # Show content based on selected page
@@ -715,7 +514,7 @@ if page == "🐦 Tweet Generator":
         if uploaded_file is not None:
             # Display uploaded image
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image")
+            st.image(image, caption="Uploaded Image", width='stretch')
             
             # Store image in session state
             st.session_state.uploaded_image = image
@@ -738,36 +537,6 @@ if page == "🐦 Tweet Generator":
                     if ai_provider == "Perplexity AI (Recommended)":
                         if perplexity_key:
                             description = generate_image_description_with_perplexity(image, perplexity_key)
-                            
-                            # If Perplexity fails with network issues, try Hugging Face as fallback
-                            if (description.startswith("NETWORK_ERROR") or 
-                                description.startswith("TIMEOUT_ERROR") or 
-                                description.startswith("FAILED_ALL_RETRIES") or
-                                description.startswith("Network connection failed") or 
-                                description.startswith("Failed to generate description")):
-                                st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
-                                description = generate_image_description_with_huggingface(image, hf_token)
-                                
-                                # If Hugging Face also fails, try OpenAI as second fallback
-                                if (description.startswith("NETWORK_ERROR") or 
-                                    description.startswith("TIMEOUT_ERROR") or 
-                                    description.startswith("FAILED_ALL_RETRIES") or
-                                    description.startswith("Error")):
-                                    st.warning("⚠️ Hugging Face also failed. Trying OpenAI as second fallback...")
-                                    if openai_key:
-                                        description = generate_image_description_with_openai(image, openai_key)
-                                        if not description.startswith("Error"):
-                                            st.success("✅ Successfully generated description using OpenAI!")
-                                        else:
-                                            st.warning("⚠️ All AI services failed. Using fallback content...")
-                                            description = generate_fallback_description(image)
-                                            st.info("💡 Generated basic description using image metadata")
-                                    else:
-                                        st.warning("⚠️ OpenAI not configured. Using fallback content...")
-                                        description = generate_fallback_description(image)
-                                        st.info("💡 Generated basic description using image metadata")
-                                else:
-                                    st.success("✅ Successfully generated description using Hugging Face!")
                         else:
                             st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
                             st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
@@ -784,60 +553,8 @@ if page == "🐦 Tweet Generator":
                     
                     processing_time = int((time.time() - start_time) * 1000)
                     
-                    # Check if description generation was successful
-                    if (description.startswith("Error") or 
-                        description.startswith("Failed") or 
-                        description.startswith("NETWORK_ERROR") or 
-                        description.startswith("TIMEOUT_ERROR") or 
-                        description.startswith("UNEXPECTED_ERROR")):
-                        st.error(f"❌ {description}")
-                        st.info("💡 Try switching to a different AI provider in the sidebar")
-                        
-                        # Add manual fallback options
-                        st.info("🔄 You can try alternative options:")
-                        col_fallback1, col_fallback2, col_fallback3 = st.columns(3)
-                        
-                        with col_fallback1:
-                            if st.button("🔄 Try Hugging Face", type="secondary"):
-                                with st.spinner("Trying Hugging Face..."):
-                                    fallback_description = generate_image_description_with_huggingface(image, hf_token)
-                                    if not fallback_description.startswith("Error") and not fallback_description.startswith("NETWORK_ERROR"):
-                                        st.success("✅ Successfully generated description using Hugging Face!")
-                                        description = fallback_description
-                                        st.session_state.tweet_content = description
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ Hugging Face also failed: {fallback_description}")
-                        
-                        with col_fallback2:
-                            if openai_key and st.button("🔄 Try OpenAI", type="secondary"):
-                                with st.spinner("Trying OpenAI..."):
-                                    fallback_description = generate_image_description_with_openai(image, openai_key)
-                                    if not fallback_description.startswith("Error"):
-                                        st.success("✅ Successfully generated description using OpenAI!")
-                                        description = fallback_description
-                                        st.session_state.tweet_content = description
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ OpenAI also failed: {fallback_description}")
-                        
-                        with col_fallback3:
-                            if st.button("📝 Use Fallback Content", type="secondary"):
-                                with st.spinner("Generating fallback content..."):
-                                    description = generate_fallback_description(image)
-                                    st.success("✅ Generated fallback description using image metadata!")
-                                    st.session_state.tweet_content = description
-                                    st.rerun()
-                    else:
-                        st.success("✅ Tweet generated successfully!")
-                    
                     # Store AI generation data
-                    if (description and 
-                        not description.startswith("Error") and 
-                        not description.startswith("Failed") and
-                        not description.startswith("NETWORK_ERROR") and
-                        not description.startswith("TIMEOUT_ERROR") and
-                        not description.startswith("UNEXPECTED_ERROR")):
+                    if description:
                         store_data_in_snowflake(
                             st.session_state.session_id,
                             "ai_generation",

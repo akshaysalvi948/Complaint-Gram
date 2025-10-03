@@ -3,7 +3,6 @@
 
 # Development mode settings
 developmentMode = false
-logLevel = "info"
 
 [server]
 # Server configuration
