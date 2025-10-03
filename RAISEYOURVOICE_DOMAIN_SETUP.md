@@ -8,7 +8,7 @@
 
 ## 🚀 Quick Setup (Choose Your Method)
 
-### Method 1: GoDaddy DNS (Easiest - 5 minutes)
+### Method 1: GoDaddy DNS (Fixed - 5 minutes)
 
 #### Step 1: Log into GoDaddy
 1. Go to [https://dcc.godaddy.com](https://dcc.godaddy.com)
@@ -16,20 +16,32 @@
 3. Find `raiseyourvoice.co.in` and click **"DNS"**
 
 #### Step 2: Add DNS Records
-Add these **CNAME records**:
+**IMPORTANT**: GoDaddy doesn't allow CNAME for root domain (@). Use A records instead:
 
 ```
 Record 1:
-Type: CNAME
+Type: A
 Name: @
-Value: GMOFVVK-QA77419.snowflakecomputing.com
-TTL: 600
+Value: 13.228.155.161
+TTL: 1 Hour
 
 Record 2:
+Type: A
+Name: @
+Value: 54.179.32.193
+TTL: 1 Hour
+
+Record 3:
+Type: A
+Name: @
+Value: 18.142.35.241
+TTL: 1 Hour
+
+Record 4:
 Type: CNAME
 Name: www
 Value: GMOFVVK-QA77419.snowflakecomputing.com
-TTL: 600
+TTL: 1 Hour
 ```
 
 #### Step 3: Wait and Test

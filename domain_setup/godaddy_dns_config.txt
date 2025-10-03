@@ -3,32 +3,43 @@
 # App: TweeterBot
 # Domain: raiseyourvoice.co.in
 
-## DNS Records to Add in GoDaddy
+## IMPORTANT: GoDaddy doesn't allow CNAME for root domain (@)
+## Use A records instead for the root domain
 
-### CNAME Records (Recommended Method)
-Type: CNAME
+## Step 1: Snowflake IP Addresses (Already Resolved)
+# Snowflake uses multiple IP addresses for load balancing:
+# Primary IP: 13.228.155.161
+# Secondary IP: 54.179.32.193
+# Tertiary IP: 18.142.35.241
+
+## Step 2: DNS Records to Add in GoDaddy
+
+### A Records (Required for root domain)
+# Add ALL THREE IP addresses for load balancing
+Type: A
 Name: @
-Value: GMOFVVK-QA77419.snowflakecomputing.com
+Value: 13.228.155.161
 TTL: 600
 
+Type: A
+Name: @
+Value: 54.179.32.193
+TTL: 600
+
+Type: A
+Name: @
+Value: 18.142.35.241
+TTL: 600
+
+### CNAME Records (For www subdomain)
 Type: CNAME
 Name: www
 Value: GMOFVVK-QA77419.snowflakecomputing.com
 TTL: 600
 
-### A Records (Alternative Method - if CNAME doesn't work)
-# First, get the IP address by running: nslookup GMOFVVK-QA77419.snowflakecomputing.com
-# Then use that IP address in the A records below
-
-Type: A
-Name: @
-Value: [Get IP from: nslookup GMOFVVK-QA77419.snowflakecomputing.com]
-TTL: 600
-
-Type: A
-Name: www
-Value: [Get IP from: nslookup GMOFVVK-QA77419.snowflakecomputing.com]
-TTL: 600
+## Alternative: Use Cloudflare (Recommended)
+# Since GoDaddy has limitations with CNAME for root domain,
+# we recommend using Cloudflare instead for better control
 
 ## Instructions:
 1. Log into your GoDaddy account
