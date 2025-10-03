@@ -1,0 +1,88 @@
+# Testing Commands for Custom Domain Setup
+# Snowflake Account: GMOFVVK-QA77419
+# App: TweeterBot
+
+## 1. Test DNS Resolution
+# Check if your domain points to the correct Snowflake server
+nslookup yourdomain.com
+nslookup www.yourdomain.com
+
+# Check specific Snowflake server
+nslookup GMOFVVK-QA77419.snowflakecomputing.com
+
+## 2. Test HTTP/HTTPS Access
+# Test HTTP (should redirect to HTTPS)
+curl -I http://yourdomain.com
+curl -I http://www.yourdomain.com
+
+# Test HTTPS
+curl -I https://yourdomain.com
+curl -I https://www.yourdomain.com
+
+# Test redirect to Snowflake app
+curl -L https://yourdomain.com
+
+## 3. Test SSL Certificate
+# Check SSL certificate validity
+openssl s_client -connect yourdomain.com:443 -servername yourdomain.com
+
+# Check certificate details
+echo | openssl s_client -connect yourdomain.com:443 -servername yourdomain.com 2>/dev/null | openssl x509 -noout -text
+
+## 4. Test App Functionality
+# Open in browser and test:
+# 1. https://yourdomain.com
+# 2. Upload an image
+# 3. Generate a tweet
+# 4. Check if all features work
+
+## 5. Performance Testing
+# Test loading speed
+curl -w "@curl-format.txt" -o /dev/null -s https://yourdomain.com
+
+# Create curl-format.txt with:
+#      time_namelookup:  %{time_namelookup}\n
+#         time_connect:  %{time_connect}\n
+#      time_appconnect:  %{time_appconnect}\n
+#     time_pretransfer:  %{time_pretransfer}\n
+#        time_redirect:  %{time_redirect}\n
+#   time_starttransfer:  %{time_starttransfer}\n
+#                      ----------\n
+#           time_total:  %{time_total}\n
+
+## 6. Mobile Testing
+# Test on mobile devices:
+# - iPhone Safari
+# - Android Chrome
+# - Check responsive design
+
+## 7. Troubleshooting Commands
+# Check if domain resolves
+dig yourdomain.com
+dig www.yourdomain.com
+
+# Check HTTP headers
+curl -I -H "User-Agent: Mozilla/5.0" https://yourdomain.com
+
+# Check for mixed content issues
+curl -s https://yourdomain.com | grep -i "http://"
+
+## 8. Expected Results
+# DNS Resolution: Should point to Snowflake IP
+# HTTPS: Should work without certificate errors
+# Redirect: Should redirect to Snowflake app
+# App: Should load and function normally
+# Mobile: Should work on all devices
+
+## 9. Common Issues and Solutions
+# Issue: Domain not resolving
+# Solution: Wait 24-48 hours for DNS propagation
+
+# Issue: SSL certificate errors
+# Solution: Check Cloudflare SSL settings or Let's Encrypt setup
+
+# Issue: App not loading
+# Solution: Check proxy configuration and Snowflake app status
+
+# Issue: Mixed content warnings
+# Solution: Ensure all resources use HTTPS

@@ -1,0 +1,50 @@
+# Cloudflare Configuration for Custom Domain
+# Snowflake Account: GMOFVVK-QA77419
+# App: TweeterBot
+
+## Step 1: Add Domain to Cloudflare
+1. Go to https://cloudflare.com
+2. Sign up for free account
+3. Click "Add a Site"
+4. Enter your domain name
+5. Select "Free" plan
+
+## Step 2: Update Nameservers in GoDaddy
+1. Cloudflare will provide nameservers (e.g., ns1.cloudflare.com, ns2.cloudflare.com)
+2. In GoDaddy, go to "Nameservers"
+3. Change to "Custom"
+4. Enter Cloudflare nameservers
+
+## Step 3: DNS Records in Cloudflare
+Type: CNAME
+Name: @
+Target: GMOFVVK-QA77419.snowflakecomputing.com
+Proxy status: Proxied (orange cloud)
+
+Type: CNAME
+Name: www
+Target: GMOFVVK-QA77419.snowflakecomputing.com
+Proxy status: Proxied (orange cloud)
+
+## Step 4: Page Rules in Cloudflare
+URL: yourdomain.com/*
+Setting: Forwarding URL (301 redirect)
+Destination: https://GMOFVVK-QA77419.snowflakecomputing.com/app/TweeterBot
+
+URL: www.yourdomain.com/*
+Setting: Forwarding URL (301 redirect)
+Destination: https://GMOFVVK-QA77419.snowflakecomputing.com/app/TweeterBot
+
+## Step 5: SSL/TLS Settings
+- Go to "SSL/TLS" → "Overview"
+- Set encryption mode to "Full"
+- Go to "SSL/TLS" → "Edge Certificates"
+- Enable "Always Use HTTPS"
+- Enable "HTTP Strict Transport Security (HSTS)"
+
+## Benefits of Cloudflare:
+- Free SSL certificate
+- Faster loading times
+- Better security
+- Easy DNS management
+- Automatic HTTPS redirect

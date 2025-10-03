@@ -1,0 +1,40 @@
+# GoDaddy DNS Configuration for Custom Domain
+# Snowflake Account: GMOFVVK-QA77419
+# App: TweeterBot
+
+## DNS Records to Add in GoDaddy
+
+### CNAME Records (Recommended Method)
+Type: CNAME
+Name: @
+Value: GMOFVVK-QA77419.snowflakecomputing.com
+TTL: 600
+
+Type: CNAME
+Name: www
+Value: GMOFVVK-QA77419.snowflakecomputing.com
+TTL: 600
+
+### A Records (Alternative Method - if CNAME doesn't work)
+# First, get the IP address by running: nslookup GMOFVVK-QA77419.snowflakecomputing.com
+# Then use that IP address in the A records below
+
+Type: A
+Name: @
+Value: [Get IP from: nslookup GMOFVVK-QA77419.snowflakecomputing.com]
+TTL: 600
+
+Type: A
+Name: www
+Value: [Get IP from: nslookup GMOFVVK-QA77419.snowflakecomputing.com]
+TTL: 600
+
+## Instructions:
+1. Log into your GoDaddy account
+2. Go to DNS Management for your domain
+3. Add the CNAME records above
+4. Wait 24-48 hours for DNS propagation
+5. Test your domain
+
+## Your Snowflake App URL:
+https://GMOFVVK-QA77419.snowflakecomputing.com/app/TweeterBot
