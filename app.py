@@ -8,6 +8,24 @@ import time
 import json
 import hashlib
 import hmac
+
+def load_env_file():
+    """Load environment variables from .env file manually"""
+    env_vars = {}
+    try:
+        if os.path.exists('.env'):
+            with open('.env', 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        env_vars[key.strip()] = value.strip()
+        return env_vars
+    except Exception:
+        return {}
+
+# Load .env file if it exists
+env_vars = load_env_file()
 # Note: python-dotenv is not available in Snowflake SiS
 # Environment variables should be set in the Snowflake environment
 import urllib.parse
@@ -110,8 +128,8 @@ twitter_api_secret = get_secret("twitter.api_secret")
 twitter_access_token = get_secret("twitter.access_token")
 twitter_access_token_secret = get_secret("twitter.access_token_secret")
 
-# Load Perplexity API key from .env file first, then fallback to secrets
-perplexity_key = os.getenv("PERPLEXITY_API_KEY") or get_secret("ai.perplexity_api_key")
+# Load Perplexity API key from .env file first, then environment, then secrets
+perplexity_key = env_vars.get("PERPLEXITY_API_KEY") or os.getenv("PERPLEXITY_API_KEY") or get_secret("ai.perplexity_api_key")
 hf_token = get_secret("ai.huggingface_token")
 openai_key = get_secret("ai.openai_api_key")
 
@@ -166,14 +184,10 @@ with st.sidebar:
     # AI Provider Configuration with input fields
     if ai_provider == "Perplexity AI (Recommended)":
         st.info("💡 High-quality image descriptions with fast response times")
-        if not perplexity_key:
-            st.error("❌ Perplexity API key not found")
-            st.info("💡 Please set PERPLEXITY_API_KEY as an environment variable in Snowflake")
-            st.code("PERPLEXITY_API_KEY=your_api_key_here", language="bash")
-            st.info("📝 Get your API key from https://www.perplexity.ai/settings/api")
-            st.info("🔧 In Snowflake SiS, set this in your app's environment variables")
+        if perplexity_key:
+            st.success("✅ Perplexity API ready")
         else:
-            st.success("✅ Perplexity API configured (loaded from environment)")
+            st.warning("⚠️ Perplexity API key not configured")
             
     elif ai_provider == "Hugging Face (Free)":
         st.info("💡 Free option using Salesforce BLIP model")
@@ -769,8 +783,7 @@ if page == "🐦 Tweet Generator":
                                 else:
                                     st.success("✅ Successfully generated description using Hugging Face!")
                         else:
-                            st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
-                            st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
+                            st.error("❌ Perplexity API key not configured. Please set PERPLEXITY_API_KEY in your .env file.")
                             description = ""
                     elif ai_provider == "Hugging Face (Free)":
                         description = generate_image_description_with_huggingface(image, hf_token)
