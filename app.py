@@ -644,62 +644,62 @@ if page == "🐦 Tweet Generator":
             # Store image in session state
             st.session_state.uploaded_image = image
             
-        # Store image data in Snowflake
-        if st.session_state.get('debug_mode', False):
-            st.info(f"🔍 Debug: Storing image data - Session: {st.session_state.session_id}, Name: {uploaded_file.name}, Size: {len(uploaded_file.getvalue())}")
-        
-        store_data_in_snowflake(
-            st.session_state.session_id,
-            "image_upload",
-            {"name": uploaded_file.name, "size": len(uploaded_file.getvalue())}
-        )
-        
-        # Generate description button
-        if st.button("🤖 Generate Tweet", type="primary"):
-            with st.spinner("Generating tweet content..."):
-                start_time = time.time()
-                description = ""
-                ai_provider_key = ai_provider.split(" ")[0].lower()
-                
-                # Generate description based on selected provider
-                if ai_provider == "Perplexity AI (Recommended)":
-                    if perplexity_key:
-                        description = generate_image_description_with_perplexity(image, perplexity_key)
-                        # If Perplexity fails with network issues, try Hugging Face as fallback
-                        if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
-                            st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
-                            description = generate_image_description_with_huggingface(image, hf_token)
-                            if not description.startswith("Error"):
-                                st.success("✅ Successfully generated description using Hugging Face!")
-                    else:
-                        st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
-                        st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
-                        description = ""
-                elif ai_provider == "Hugging Face (Free)":
-                    description = generate_image_description_with_huggingface(image, hf_token)
-                elif ai_provider == "OpenAI (Paid)":
-                    if openai_key:
-                        description = generate_image_description_with_openai(image, openai_key)
-                    else:
-                        st.error("❌ Please enter your OpenAI API key in the sidebar to use this feature.")
-                        st.info("💡 You can get an API key from https://platform.openai.com/api-keys")
-                        description = ""
-                
-                processing_time = int((time.time() - start_time) * 1000)
-                
-                # Store AI generation data
-                if description:
-                    store_data_in_snowflake(
-                        st.session_state.session_id,
-                        "ai_generation",
-                        {
-                            "provider": ai_provider_key,
-                            "text": description,
-                            "processing_time": processing_time
-                        }
-                    )
-                
-                st.session_state.tweet_content = description
+            # Store image data in Snowflake
+            if st.session_state.get('debug_mode', False):
+                st.info(f"🔍 Debug: Storing image data - Session: {st.session_state.session_id}, Name: {uploaded_file.name}, Size: {len(uploaded_file.getvalue())}")
+            
+            store_data_in_snowflake(
+                st.session_state.session_id,
+                "image_upload",
+                {"name": uploaded_file.name, "size": len(uploaded_file.getvalue())}
+            )
+            
+            # Generate description button
+            if st.button("🤖 Generate Tweet", type="primary"):
+                with st.spinner("Generating tweet content..."):
+                    start_time = time.time()
+                    description = ""
+                    ai_provider_key = ai_provider.split(" ")[0].lower()
+                    
+                    # Generate description based on selected provider
+                    if ai_provider == "Perplexity AI (Recommended)":
+                        if perplexity_key:
+                            description = generate_image_description_with_perplexity(image, perplexity_key)
+                            # If Perplexity fails with network issues, try Hugging Face as fallback
+                            if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
+                                st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
+                                description = generate_image_description_with_huggingface(image, hf_token)
+                                if not description.startswith("Error"):
+                                    st.success("✅ Successfully generated description using Hugging Face!")
+                        else:
+                            st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
+                            st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
+                            description = ""
+                    elif ai_provider == "Hugging Face (Free)":
+                        description = generate_image_description_with_huggingface(image, hf_token)
+                    elif ai_provider == "OpenAI (Paid)":
+                        if openai_key:
+                            description = generate_image_description_with_openai(image, openai_key)
+                        else:
+                            st.error("❌ Please enter your OpenAI API key in the sidebar to use this feature.")
+                            st.info("💡 You can get an API key from https://platform.openai.com/api-keys")
+                            description = ""
+                    
+                    processing_time = int((time.time() - start_time) * 1000)
+                    
+                    # Store AI generation data
+                    if description:
+                        store_data_in_snowflake(
+                            st.session_state.session_id,
+                            "ai_generation",
+                            {
+                                "provider": ai_provider_key,
+                                "text": description,
+                                "processing_time": processing_time
+                            }
+                        )
+                    
+                    st.session_state.tweet_content = description
 
     with col2:
         st.subheader("✍️ Tweet Preview")
