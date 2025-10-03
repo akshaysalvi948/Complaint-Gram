@@ -228,57 +228,86 @@ def encode_image_to_base64(image):
     return img_str
 
 def generate_image_description_with_perplexity(image, api_key):
-    """Generate image description using Perplexity AI via direct HTTP requests"""
-    try:
-        # Convert image to base64
-        img_base64 = encode_image_to_base64(image)
-        image_url = f"data:image/jpeg;base64,{img_base64}"
+    """Generate image description using Perplexity AI via direct HTTP requests with retry logic"""
+    import time
+    
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Convert image to base64
+            img_base64 = encode_image_to_base64(image)
+            image_url = f"data:image/jpeg;base64,{img_base64}"
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
 
-        payload = {
-            "model": "sonar-pro",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image_url}
-                        }
-                    ]
-                }
-            ],
-            "max_tokens": 150,
-            "temperature": 0.7
-        }
+            payload = {
+                "model": "sonar-pro",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a social media expert. Write engaging, concise tweets about images. Keep descriptions under 280 characters, make them interesting and social media-friendly. Focus on what makes the image unique or noteworthy."
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Write a brief, engaging tweet about this image. Make it interesting for social media and keep it under 280 characters."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": image_url}
+                            }
+                        ]
+                    }
+                ],
+                "max_tokens": 150,
+                "temperature": 0.7
+            }
 
-        response = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
 
-        if response.status_code == 200:
-            result = response.json()
-            return result['choices'][0]['message']['content'].strip()
-        else:
-            return f"Error: {response.status_code} - {response.text}"
+            if response.status_code == 200:
+                result = response.json()
+                return result['choices'][0]['message']['content'].strip()
+            else:
+                error_msg = f"Error: {response.status_code} - {response.text}"
+                if attempt < max_retries - 1:
+                    st.warning(f"Perplexity API attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return error_msg
 
-    except Exception as e:
-        return f"Error generating description with Perplexity AI: {str(e)}"
+        except requests.exceptions.ConnectionError as e:
+            if "Device or resource busy" in str(e) or "Max retries exceeded" in str(e):
+                if attempt < max_retries - 1:
+                    st.warning(f"Network connection issue (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return f"Network connection failed after {max_retries} attempts. Please try again later or switch to a different AI provider."
+            else:
+                return f"Connection error: {str(e)}"
+        except Exception as e:
+            if attempt < max_retries - 1:
+                st.warning(f"Unexpected error (attempt {attempt + 1}). Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                continue
+            else:
+                return f"Error generating description with Perplexity AI: {str(e)}"
+    
+    return "Failed to generate description after all retry attempts."
 
 def generate_image_description_with_huggingface(image, token=""):
     """Generate image description using Hugging Face's free API"""
@@ -462,6 +491,32 @@ def store_data_in_snowflake(session_id, action, data):
         # In Snowflake SiS, we can use st.connection to access Snowflake
         conn = st.connection("snowflake")
         
+        # First, check if table exists
+        try:
+            conn.query("SELECT 1 FROM TWEETERBOT_ANALYTICS LIMIT 1")
+        except Exception as table_error:
+            if "does not exist" in str(table_error).lower():
+                st.error("❌ TWEETERBOT_ANALYTICS table does not exist!")
+                st.info("💡 Please run this SQL in your Snowflake worksheet:")
+                st.code("""
+CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
+    session_id VARCHAR(255),
+    action_type VARCHAR(100),
+    timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    image_name VARCHAR(255),
+    image_size INT,
+    ai_provider VARCHAR(100),
+    generated_text VARCHAR(10000),
+    processing_time_ms INT,
+    tweet_id VARCHAR(255),
+    tweet_text VARCHAR(280),
+    success BOOLEAN
+);
+                """, language="sql")
+                return False
+            else:
+                raise table_error
+        
         if action == "image_upload":
             query = """
             INSERT INTO TWEETERBOT_ANALYTICS (
@@ -537,6 +592,12 @@ if page == "🐦 Tweet Generator":
                     if ai_provider == "Perplexity AI (Recommended)":
                         if perplexity_key:
                             description = generate_image_description_with_perplexity(image, perplexity_key)
+                            # If Perplexity fails with network issues, try Hugging Face as fallback
+                            if description.startswith("Network connection failed") or description.startswith("Failed to generate description"):
+                                st.warning("⚠️ Perplexity AI failed due to network issues. Trying Hugging Face as fallback...")
+                                description = generate_image_description_with_huggingface(image, hf_token)
+                                if not description.startswith("Error"):
+                                    st.success("✅ Successfully generated description using Hugging Face!")
                         else:
                             st.error("❌ Please enter your Perplexity API key in the sidebar to use this feature.")
                             st.info("💡 You can get a free API key from https://www.perplexity.ai/settings/api")
