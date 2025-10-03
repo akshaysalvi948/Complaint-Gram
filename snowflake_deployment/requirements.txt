@@ -1,0 +1,13 @@
+# Snowflake Streamlit in Snowflake (SiS) Compatible Requirements
+# Only include packages available in Snowflake's Anaconda repository
+
+streamlit
+requests
+Pillow
+pandas
+
+# Note: The following packages are NOT available in Snowflake SiS:
+# tweepy - Replaced with direct Twitter API calls using requests
+# python-dotenv - Replaced with Streamlit secrets only
+# snowflake-connector-python - Not needed in SiS (native connection available)
+# plotly - Not available, using Streamlit's built-in charts instead
