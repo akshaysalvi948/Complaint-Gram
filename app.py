@@ -567,51 +567,104 @@ CREATE TABLE IF NOT EXISTS TWEETERBOT_ANALYTICS (
                 st.error(f"❌ Table access error: {error_msg}")
                 return False
         
-        # Prepare the query based on action
+        # Prepare the query based on action using Snowflake SiS compatible format
         if action == "image_upload":
-            query = """
+            # Escape single quotes in string values
+            session_id_escaped = session_id.replace("'", "''")
+            action_escaped = action.replace("'", "''")
+            name_escaped = data.get('name', '').replace("'", "''")
+            size = data.get('size', 0)
+            
+            query = f"""
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, image_name, image_size
-            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?)
+            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{name_escaped}', {size})
             """
-            params = [session_id, action, data.get('name', ''), data.get('size', 0)]
             
         elif action == "ai_generation":
-            query = """
+            # Escape single quotes in string values
+            session_id_escaped = session_id.replace("'", "''")
+            action_escaped = action.replace("'", "''")
+            provider_escaped = data.get('provider', '').replace("'", "''")
+            text_escaped = data.get('text', '').replace("'", "''")
+            processing_time = data.get('processing_time', 0)
+            
+            query = f"""
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
-            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
+            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{provider_escaped}', '{text_escaped}', {processing_time})
             """
-            params = [
-                session_id, action, data.get('provider', ''), 
-                data.get('text', ''), data.get('processing_time', 0)
-            ]
             
         elif action == "tweet_post":
-            query = """
+            # Escape single quotes in string values
+            session_id_escaped = session_id.replace("'", "''")
+            action_escaped = action.replace("'", "''")
+            tweet_id_escaped = data.get('tweet_id', '').replace("'", "''")
+            text_escaped = data.get('text', '').replace("'", "''")
+            success = data.get('success', False)
+            
+            query = f"""
             INSERT INTO TWEETERBOT_ANALYTICS (
                 session_id, action_type, timestamp, tweet_id, tweet_text, success
-            ) VALUES (?, ?, CURRENT_TIMESTAMP(), ?, ?, ?)
+            ) VALUES ('{session_id_escaped}', '{action_escaped}', CURRENT_TIMESTAMP(), '{tweet_id_escaped}', '{text_escaped}', {str(success).upper()})
             """
-            params = [
-                session_id, action, data.get('tweet_id', ''), 
-                data.get('text', ''), data.get('success', False)
-            ]
         else:
             st.warning(f"Unknown action type: {action}")
             return False
         
         # Execute the query with detailed error handling
         try:
-            conn.query(query, params=params)
+            if st.session_state.get('debug_mode', False):
+                st.info(f"🔍 Debug: Executing query: {query}")
+            
+            conn.query(query)
             st.success(f"✅ Data stored successfully for {action}")
             return True
         except Exception as query_error:
             error_msg = str(query_error)
-            st.error(f"❌ Query execution failed: {error_msg}")
-            st.info(f"Query: {query}")
-            st.info(f"Params: {params}")
-            return False
+            st.warning(f"⚠️ Query failed with string formatting, trying parameterized approach...")
+            
+            # Fallback to parameterized queries
+            try:
+                if action == "image_upload":
+                    fallback_query = """
+                    INSERT INTO TWEETERBOT_ANALYTICS (
+                        session_id, action_type, timestamp, image_name, image_size
+                    ) VALUES (%s, %s, CURRENT_TIMESTAMP(), %s, %s)
+                    """
+                    conn.query(fallback_query, params=[session_id, action, data.get('name', ''), data.get('size', 0)])
+                    
+                elif action == "ai_generation":
+                    fallback_query = """
+                    INSERT INTO TWEETERBOT_ANALYTICS (
+                        session_id, action_type, timestamp, ai_provider, generated_text, processing_time_ms
+                    ) VALUES (%s, %s, CURRENT_TIMESTAMP(), %s, %s, %s)
+                    """
+                    conn.query(fallback_query, params=[
+                        session_id, action, data.get('provider', ''), 
+                        data.get('text', ''), data.get('processing_time', 0)
+                    ])
+                    
+                elif action == "tweet_post":
+                    fallback_query = """
+                    INSERT INTO TWEETERBOT_ANALYTICS (
+                        session_id, action_type, timestamp, tweet_id, tweet_text, success
+                    ) VALUES (%s, %s, CURRENT_TIMESTAMP(), %s, %s, %s)
+                    """
+                    conn.query(fallback_query, params=[
+                        session_id, action, data.get('tweet_id', ''), 
+                        data.get('text', ''), data.get('success', False)
+                    ])
+                
+                st.success(f"✅ Data stored successfully for {action} (using fallback method)")
+                return True
+                
+            except Exception as fallback_error:
+                st.error(f"❌ Both query methods failed:")
+                st.error(f"String format error: {error_msg}")
+                st.error(f"Parameterized error: {str(fallback_error)}")
+                st.info(f"Original query: {query}")
+                return False
             
     except Exception as e:
         error_msg = str(e)
